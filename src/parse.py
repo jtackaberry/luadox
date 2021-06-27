@@ -199,7 +199,8 @@ class Parser:
 
     def _check_disconnected_reference(self, ref):
         """
-        Logs a warning if the reference is disconnected (
+        Logs a warning if the reference is disconnected (that is, a documentation
+        block that is not associated with any symbol).
         """
         if ref and not ref.userdata.get('added'):
             if ref.symbol:
@@ -399,8 +400,6 @@ class Parser:
                     parse_next_code_line = True
 
         self._check_disconnected_reference(ref)
-        # log.info('DONE: %s', scopes)
-        # for scope in reversed(scopes):
         return requires
 
 
