@@ -301,7 +301,7 @@ Here is a summary of LuaDox tags, with more details below the table:
 | `@warning` | Admonition block | Like `@note` but uses a red color | (See `@note`)
 | `@field` | Element | Declare a field within a collection without an explicit field assignment in Lua code.  Rarely needed, and documenting field assignments is preferred and more flexible. Unlike LDoc, must *follow* `@table`. | `@field foo This is the description of the foo field` |
 | `@{name}` | Reference | Creates a link to the given element name, using `name` as the link text | `@{fileconsts}` |
-| `@{name\|display text}` | Reference | Creates a link to the given element name, but uses `display text` the link text | `@{fileconsts|file constants} |
+| `@{name\|display text}` | Reference | Creates a link to the given element name, but uses `display text` the link text | `@{fileconsts|file constants}` |
 
 ### `@module`
 
@@ -681,7 +681,7 @@ Like `@example`, but the heading says "Usage" instead.
 
 ### `@note`
 
-Creates a visually distinct paragraph (i.e. bordered with a green background color), which can
+Creates a visually distinct paragraph (bordered with a green background color), which can
 be used to emphasize noteworthy content.
 
 This tag takes the form `@note <title>` where `<title>` is an *optional* arbitrary string
