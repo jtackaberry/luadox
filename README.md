@@ -853,7 +853,7 @@ But on Windows, Python must be called directly (and of course this also works on
 Linux and OS X):
 
 ```
-C:\src\luadox> python3 luadox -c luadox.conf
+C:\src\luadox> python luadox -c luadox.conf
 ```
 
 `luadox --help` will output usage instructions:
