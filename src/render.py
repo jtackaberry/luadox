@@ -7,7 +7,7 @@ import mimetypes
 from contextlib import contextmanager
 
 import commonmark
-from commonmark_extensions.tables import ParserWithTables, RendererWithTables
+import commonmark_extensions.tables
 
 from .utils import get_asset_contents
 from .log import log
@@ -17,9 +17,26 @@ from .parse import *
 # Effectively disable implicit code blocks
 commonmark.blocks.CODE_INDENT = 1000
 
-class CustomRendererWithTables(RendererWithTables):
+
+class CustomRendererWithTables(commonmark_extensions.tables.RendererWithTables):
     def make_table_node(self, node):
         return '<table class="user">'
+
+# https://github.com/GovReady/CommonMark-py-Extensions/issues/3#issuecomment-756499491
+# Thanks to hughdavenport
+class TableWaitingForBug3(commonmark_extensions.tables.Table):
+    @staticmethod
+    def continue_(parser=None, container=None):
+        ln = parser.current_line
+        if not parser.indented and commonmark.blocks.peek(ln, parser.next_nonspace) == "|":
+            parser.advance_next_nonspace()
+            parser.advance_offset(1, False)
+        elif not parser.indented and commonmark.blocks.peek(ln, parser.next_nonspace) not in ("", ">", "`", None):
+            pass
+        else:
+            return 1
+        return 0
+commonmark.blocks.Table = TableWaitingForBug3
 
 class Renderer:
     """
@@ -252,7 +269,7 @@ class Renderer:
         Renders the given markdown as HTML and returns the result.
         """
         md = self._refs_to_markdown(md)
-        parser = ParserWithTables()
+        parser = commonmark_extensions.tables.ParserWithTables()
         ast = parser.parse(md)
         html = CustomRendererWithTables().render(ast)
         def replace_admonition(m):
