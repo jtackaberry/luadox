@@ -148,7 +148,7 @@ class Renderer:
         block = re.sub(r'(`)?@{([^}|]+)(?:\|([^}]*))?}(`)?', self._render_ref_markdown_re, block, 0, re.S)
         return block
 
-    def _content_to_markdown(self, content):
+    def _content_to_markdown(self, content, strip_comments=True):
         """
         Converts a docstring block into markdown.
 
@@ -215,8 +215,9 @@ class Renderer:
         last_line = content[-1][0]
         for n, line in content:
             self.ctx.update(line=n)
-            tag, args = self.parser._parse_tag(line)
-            line = line.lstrip('-').rstrip()
+            tag, args = self.parser._parse_tag(line, require_comment=strip_comments)
+            if strip_comments:
+                line = line.lstrip('-').rstrip()
             indent = len(re.search(r'^( *)', line).group(1))
 
             if tagstack:
@@ -503,7 +504,7 @@ class Renderer:
         out('<div class="manual">')
         if manualref.content:
             # Include any preamble before the first heading.
-            _, _, md = self._content_to_markdown(manualref.content)
+            _, _, md = self._content_to_markdown(manualref.content, strip_comments=False)
             out(self._markdown_to_html(md))
         for section in self.parser._get_sections(manualref):
             self.ctx.update(ref=section)
@@ -511,8 +512,8 @@ class Renderer:
             out('<h{} id="{}">{}'.format(level, section.symbol, section.display))
             out(self._permalink(section.symbol))
             out('</h{}>'.format(level))
-            content = '\n'.join(line for _, line in section.content)
-            out(self._markdown_to_html(content))
+            _, _, md = self._content_to_markdown(section.content, strip_comments=False)
+            out(self._markdown_to_html(md))
         out('</div>')
 
     def _render_classmod(self, topref, out):

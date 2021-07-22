@@ -113,13 +113,13 @@ class Parser:
             return None, None
 
 
-    def _parse_tag(self, line):
+    def _parse_tag(self, line, require_comment=True):
         """
         Looks for a @tag in the given raw line of code, and returns the name of
         the tag and any arguments as a list, or a 2-tuple of Nones if no tag was
         found.
         """
-        m = re.search(r'^--+ *@([^{]\S+) *(.*)', line)
+        m = re.search(r'^%s *@([^{]\S+) *(.*)' % ('--+' if require_comment else ''), line)
         if m:
             tag, args = m.groups()
             return tag, [arg.strip() for arg in args.split()]
