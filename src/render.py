@@ -635,9 +635,9 @@ class Renderer:
                         while nmeta > 0:
                             out('<td class="meta"></td>')
                             nmeta -= 1
-                        params, returns, md = self._content_to_markdown(ref.content)
+                        _, _, ref.md = self._content_to_markdown(ref.content)
                         if not fields_compact:
-                            md, _ = self._get_first_sentence(md)
+                            md, _ = self._get_first_sentence(ref.md)
                         if md:
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
@@ -665,9 +665,9 @@ class Renderer:
                         while meta > 0:
                             out('<td class="meta"></td>')
                             meta -= 1
-                        params, returns, md = self._content_to_markdown(ref.content)
+                        ref.params, ref.returns, ref.md = self._content_to_markdown(ref.content)
                         if not functions_compact:
-                            md, _ = self._get_first_sentence(md)
+                            md, _ = self._get_first_sentence(ref.md)
                         out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
                     out('</table>')
@@ -690,9 +690,8 @@ class Renderer:
                         out('<span class="tag meta">{}</span>'.format(ref.flags['meta']))
                     out(self._permalink(ref.name))
                     out('</dt>')
-                    _, _, md = self._content_to_markdown(ref.content)
                     out('<dd>')
-                    out(self._markdown_to_html(md))
+                    out(self._markdown_to_html(ref.md))
                     out('</dd>')
                 out('</dl>')
 
@@ -711,15 +710,14 @@ class Renderer:
                         out('<span class="tag meta">{}</span>'.format(ref.flags['meta']))
                     out(self._permalink(ref.name))
                     out('</dt>')
-                    params, returns, md = self._content_to_markdown(ref.content)
                     out('<dd>')
-                    out(self._markdown_to_html(md))
-                    if params:
+                    out(self._markdown_to_html(ref.md))
+                    if ref.params:
                         out('<div class="heading">Parameters</div>')
                         out('<table class="parameters">')
                         for arg in ref.extra:
                             try:
-                                types, doc = params[arg]
+                                types, doc = ref.params[arg]
                             except KeyError:
                                 log.warning('%s() missing @tparam for "%s" parameter', ref.name, arg)
                                 types = []
@@ -730,12 +728,12 @@ class Renderer:
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(doc)))
                             out('</tr>')
                         out('</table>')
-                    if returns:
+                    if ref.returns:
                         out('<div class="heading">Return Values</div>')
                         out('<table class="returns">')
-                        for n, (types, doc) in enumerate(returns, 1):
+                        for n, (types, doc) in enumerate(ref.returns, 1):
                             out('<tr>')
-                            if len(returns) > 1:
+                            if len(ref.returns) > 1:
                                 out('<td class="name">{}.</td>'.format(n))
                             out('<td class="types">({})</td>'.format(self._types_to_html(types)))
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(doc)))
