@@ -864,7 +864,8 @@ usage: luadox [-h] [-c FILE] [-n NAME] [-o DIRNAME] [-m [ID=FILENAME [ID=FILENAM
               [FILE [FILE ...]]
 
 positional arguments:
-  FILE                  List of files to parse or directories to crawl
+  [MODNAME=]FILE        List of files to parse or directories to crawl
+                        with optional module name alias
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -882,13 +883,29 @@ optional arguments:
   --version             show program's version number and exit
 ```
 
-The positional `FILE` argument(s) can be either specific Lua source files,
-or directories within which `init.lua` is opened.  By default, LuaDox will
-follow and parse all files that are `require()`d within the code, provided
-the required file is discovered within any of the directories containing
-the files passed on the command line.  This behavior can be disabled with
-the `--nofollow` argment or setting `follow = false` in the config file,
-in which case LuaDox will only parse files explicitly passed.
+The positional `[MODNAME=]FILE` argument(s) defines what source files to scan.  The
+`FILE` part can be either specific Lua source files, or directories within which
+`init.lua` exists.  By default, LuaDox will follow and parse all files that are
+`require()`d within the code, provided the required file is discovered within any of the
+directories containing the files passed on the command line.
+
+The optional `MODNAME` part of the argument explicitly specifies the Lua module name as
+`require()`d in code.  For example, if your library is called `foo` and your source files
+are held in `../src/foo` then LuaDox knows that when requiring `foo.bar.baz` from Lua, we
+should check `../src/foo/bar/baz.lua` because of the matching `foo` component between the
+module name and the path.
+
+However, if all your source files for module `foo` were instead contained in `../src`,
+say, you need to tell LuaDox that requiring `foo.bar` is actually at `../src/bar.lua`.
+This is done by specifying `MODNAME` in the argument, i.e. `foo=../src`.
+
+Bottom line: if your directory structure is directly named after the module name, you
+probably don't need to specify the `MODNAME` alias, but if your directory is called
+something else, like `src`, you do.
+
+The behavior to automatically discover and parse `require()`d files can be disabled with
+the `--nofollow` argment or setting `follow = false` in the config file, in which case
+LuaDox will only parse files explicitly passed.
 
 Any option can be defined on the command line, but it may be more convenient to
 use a config file.

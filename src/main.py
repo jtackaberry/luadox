@@ -7,7 +7,7 @@ if sys.hexversion < 0x03050000:
     sys.exit(1)
 
 import os
-import io
+import re
 import configparser
 import shutil
 import argparse
@@ -45,15 +45,35 @@ def get_file_by_module(path, module, bases):
     returned.
     """
     modparts = module.split('.')
-    for base in bases:
-        p = os.path.join(base, *modparts) + '.lua'
-        if os.path.exists(p):
-            return os.path.abspath(p)
-        baseparts = os.path.split(base)
-        if modparts[0] == baseparts[-1]:
-            p = os.path.join(base, *modparts[1:]) + '.lua'
+    for aliasparts, paths in bases.items():
+        alias_matches = modparts[:len(aliasparts)] == list(aliasparts) if aliasparts else False
+        for base in paths:
+            if alias_matches:
+                # User-defined module name for this path matches the requested
+                # module name.  Strip away the intersecting components of the
+                # module name and check this path for what's left.  For example,
+                # if we're loading foo.bar, alias=foo, base=../src, then we
+                # check ../src/bar.lua.
+                remaining = modparts[len(aliasparts):]
+                p = os.path.join(base, *remaining) + '.lua'
+                if os.path.exists(p):
+                    return os.path.abspath(p)
+            # No module name alias, or alias didn't match the requested module.
+            # First treat the requested module as immediately subordinate to
+            # the given path.  For example, we're loading foo.bar and base is
+            # ../src, then we check ../src/foo/bar.lua
+            p = os.path.join(base, *modparts) + '.lua'
             if os.path.exists(p):
-                return p
+                return os.path.abspath(p)
+            # Next check to see if the first component of the module name is
+            # the same as the base directory name and if so strip it off and
+            # look for remaining.  For example, we're loading foo.bar and base is
+            # ../foo, then we check ../foo/bar.lua
+            baseparts = os.path.split(base)
+            if modparts[0] == baseparts[-1]:
+                p = os.path.join(base, *modparts[1:]) + '.lua'
+                if os.path.exists(p):
+                    return p
 
 
 def crawl(parser, path, follow, seen, bases, encoding):
@@ -116,9 +136,11 @@ def get_files(config):
     Generates the files/directories to parse based on config.
     """
     files = config.get('project', 'files', fallback='').strip().splitlines()
-    for part in files:
-        for f in shlex.split(part):
-            yield from glob.glob(f)
+    for spec in files:
+        alias, patterns = re.search(r'(?:([^/\\]+)=)?(.*)', spec).groups()
+        for pattern in shlex.split(patterns):
+            for fname in glob.glob(pattern):
+                yield alias, fname
 
 
 def copy_file_from_config(section, option, outdir):
@@ -151,8 +173,8 @@ def main():
                    help="Disable following of require()'d files (default false)")
     p.add_argument('--encoding', action='store', type=str, metavar='CODEC', default=locale.getpreferredencoding(),
                    help='Character set codec for input (default {})'.format(locale.getpreferredencoding()))
-    p.add_argument('files', type=str, metavar='FILE', nargs='*',
-                   help='List of files to parse or directories to crawl')
+    p.add_argument('files', type=str, metavar='[MODNAME=]FILE', nargs='*',
+                   help='List of files to parse or directories to crawl with optional module name alias')
     p.add_argument('--version', action='version', version='%(prog)s ' + __version__)
 
     args = p.parse_args()
@@ -165,10 +187,11 @@ def main():
 
     # Derive a set of base paths based on the input files that will act as search
     # paths for crawling
-    bases = set()
-    for fname in files:
+    bases = {}
+    for alias, fname in files:
         fname = os.path.abspath(fname)
-        bases.add(fname if os.path.isdir(fname) else os.path.dirname(fname))
+        aliasparts = tuple(alias.split('.')) if alias else None
+        bases.setdefault(aliasparts, set()).add(fname if os.path.isdir(fname) else os.path.dirname(fname))
 
     parser = Parser(config)
     encoding = config.get('project', 'encoding')
@@ -176,7 +199,7 @@ def main():
         # Parse given files/directories, with following if enabled.
         follow = config.get('project', 'follow', fallback='true').lower() in ('true', '1', 'yes')
         seen = set()
-        for fname in files:
+        for _, fname in files:
             crawl(parser, fname, follow, seen, bases, encoding)
         pages = config.items('manual') if config.has_section('manual') else []
         for scope, path in pages:
