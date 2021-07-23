@@ -43,6 +43,9 @@ build/pkg/luadox/version.py: .git/refs/tags .git/refs/heads
 	@echo "# This is a generated file" > build/pkg/luadox/version.py
 	@echo "__version__ = \"$(TAG)\"" >> build/pkg/luadox/version.py
 
+docker: luadox
+	docker build .
+
 .PHONY: clean
 clean:
 	rm -rf ext build
