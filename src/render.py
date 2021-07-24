@@ -410,13 +410,14 @@ class Renderer:
             else:
                 prevref = ref
 
+        hometext = self.config.get('project', 'title', fallback=title)
         out('<div class="topbar">')
         out('<div class="group one">')
         if self.config.has_section('manual') and self.config.get('manual', 'index', fallback=None):
             path = '' if (topref.type == 'manual' and topref.name == 'index') else '../'
-            out('<div class="button description"><a href="{}index.html"><span>{} documentation</span></a></div>'.format(path, title))
+            out('<div class="button description"><a href="{}index.html"><span>{}</span></a></div>'.format(path, hometext))
         else:
-            out('<div class="description"><span>{} documentation</span></div>'.format(title))
+            out('<div class="description"><span>{}</span></div>'.format(hometext))
         out('</div>')
         out('<div class="group two">')
         self._render_user_buttons(topref, root, out)

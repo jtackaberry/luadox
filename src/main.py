@@ -135,7 +135,7 @@ def get_config(args):
         config.set('project', 'files', '\n'.join(args.files))
     if args.nofollow:
         config.set('project', 'follow', 'false')
-    for prop in ('name', 'outdir', 'css', 'favicon', 'encoding'):
+    for prop in ('name', 'outdir', 'css', 'favicon', 'encoding', 'hometext'):
         if getattr(args, prop):
             config.set('project', prop, getattr(args, prop))
     if args.manual:
@@ -175,6 +175,8 @@ def main():
                    help='Luadox configuration file')
     p.add_argument('-n', '--name', action='store', type=str, metavar='NAME',
                    help='Project name (default Lua Project)')
+    p.add_argument('--hometext', action='store', type=str, metavar='TEXT',
+                   help='Home link text on the top left of every page')
     p.add_argument('-o', '--outdir', action='store', type=str, metavar='DIRNAME',
                    help='Directory name for rendered files, created if necessary (default ./out)')
     p.add_argument('-m', '--manual', action='store', type=str, metavar='ID=FILENAME', nargs='*',
