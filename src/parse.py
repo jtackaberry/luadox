@@ -430,9 +430,13 @@ class Parser:
         self._add_reference(topref)
 
         ref = topref
+        codeblocks = 0
         for n, line in enumerate(content.splitlines(), 1):
+            codeblocks += line.count('```')
             m = re.search('^(#+) *(.*) *', line)
-            if m:
+            # If we have what looks to be a heading, make sure it's not actually contained
+            # within a code block.
+            if m and codeblocks % 2 == 0:
                 hashes, heading = m.groups()
                 level = len(hashes)
                 # Only h1, h2, and h3 create section references.
