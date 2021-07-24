@@ -67,18 +67,18 @@ div.topbar div.button a {
     align-items: center;
 }
 
-div.topbar div.button.nav a {
+div.topbar div.button.solid a {
     margin-left: 1em;
 }
 
-div.topbar div.button.nav a,
+div.topbar div.button.solid a,
 div.topbar div.button a:hover {
     background-color: #697983;
     text-shadow: 0 1px rgba(0, 0, 0, 0.5);
     border-radius: 3px;
     border: none;
 }
-div.topbar div.button.nav a:hover {
+div.topbar div.button.solid a:hover {
     background-color: #8aa0ad;
 }
 
