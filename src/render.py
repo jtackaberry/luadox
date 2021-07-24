@@ -53,9 +53,9 @@ class Renderer:
         parser.refs['--search'] = Reference(parser, type='search', symbol='Search')
 
         self._templates = {
-            'head': get_asset_contents('head.tmpl.html'),
-            'foot': get_asset_contents('foot.tmpl.html'),
-            'search': get_asset_contents('search.tmpl.html'),
+            'head': get_asset_contents('head.tmpl.html', encoding='utf8'),
+            'foot': get_asset_contents('foot.tmpl.html', encoding='utf8'),
+            'search': get_asset_contents('search.tmpl.html', encoding='utf8'),
         }
 
     def _get_root_path(self):

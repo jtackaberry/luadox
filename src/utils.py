@@ -61,7 +61,7 @@ def get_file_from_zip(path, filename, newerthan=None):
         return info, mtime, zipfile.open(filename)
 
 
-def get_asset_contents(fname):
+def get_asset_contents(fname, encoding=None):
     """
     Returns the contents of a file in the assets directory, which works whether the
     program is running from a zip bundle or directly from filesystem.
@@ -70,7 +70,10 @@ def get_asset_contents(fname):
     path = abspath_to_zippath(assets_dir)
     if path:
         _, _, f = get_file_from_zip(path, fname)
-        return f.read().decode('utf8')
     else:
-        f = open(os.path.join(assets_dir, fname))
-        return f.read()
+        f = open(os.path.join(assets_dir, fname), 'rb')
+    try:
+        data = f.read()
+        return data.decode(encoding) if encoding else data
+    finally:
+        f.close()
