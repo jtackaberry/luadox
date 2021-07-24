@@ -339,8 +339,8 @@ class Renderer:
         elif topref.type == 'manual':
             self._render_manual(topref, topref.html.append)
 
-    def _render_user_buttons(self, topref, root, out):
-        sections = sorted(s for s in self.config.sections() if s.startswith('button'))
+    def _render_user_links(self, topref, root, out):
+        sections = sorted(s for s in self.config.sections() if s.startswith('link'))
         for section in sections:
             img = self.config.get(section, 'icon', fallback=None)
             cls = ''
@@ -354,7 +354,7 @@ class Renderer:
                 self.config.get(section, 'url', fallback='').replace('{root}', root),
                 self.config.get(section, 'tooltip', fallback=''),
                 img or '',
-                self.config.get(section, 'label'),
+                self.config.get(section, 'text'),
             ))
 
     @contextmanager
@@ -420,7 +420,7 @@ class Renderer:
             out('<div class="description"><span>{}</span></div>'.format(hometext))
         out('</div>')
         out('<div class="group two">')
-        self._render_user_buttons(topref, root, out)
+        self._render_user_links(topref, root, out)
         out('</div>')
         out('<div class="group three">')
         if prevref:
