@@ -362,7 +362,7 @@ class Renderer:
             if img:
                 if img in ('download', 'github', 'gitlab', 'bitbucket'):
                     img = '{root}img/i-' + img + '.svg?' + self._assets_version
-                img = '<img src="{}"/>'.format(img.replace('{root}', root))
+                img = '<img src="{}" alt=""/>'.format(img.replace('{root}', root))
                 cls = ' iconleft'
             out('<div class="button{}"><a href="{}" title="{}">{}<span>{}</span></a></div>'.format(
                 cls,
@@ -440,14 +440,14 @@ class Renderer:
         out('</div>')
         out('<div class="group three">')
         if prevref:
-            out('<div class="button iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg?{}"/><span>Previous</span></a></div>'.format(
+            out('<div class="button iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg?{}" alt=""/><span>Previous</span></a></div>'.format(
                 self._get_ref_href(prevref),
                 prevref.name,
                 root,
                 self._assets_version
             ))
         if nextref:
-            out('<div class="button iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg?{}"/></a></div>'.format(
+            out('<div class="button iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg?{}" alt=""/></a></div>'.format(
                 self._get_ref_href(nextref),
                 nextref.name,
                 root,
