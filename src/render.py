@@ -9,7 +9,7 @@ from contextlib import contextmanager
 import commonmark
 import commonmark_extensions.tables
 
-from .utils import get_asset_contents
+from .assets import assets
 from .log import log
 from .reference import *
 from .parse import *
@@ -53,10 +53,11 @@ class Renderer:
         parser.refs['--search'] = Reference(parser, type='search', symbol='Search')
 
         self._templates = {
-            'head': get_asset_contents('head.tmpl.html', encoding='utf8'),
-            'foot': get_asset_contents('foot.tmpl.html', encoding='utf8'),
-            'search': get_asset_contents('search.tmpl.html', encoding='utf8'),
+            'head': assets.get('head.tmpl.html', encoding='utf8'),
+            'foot': assets.get('foot.tmpl.html', encoding='utf8'),
+            'search': assets.get('search.tmpl.html', encoding='utf8'),
         }
+        self._assets_version = assets.hash()[:7]
 
     def _get_root_path(self):
         """
@@ -345,8 +346,8 @@ class Renderer:
             img = self.config.get(section, 'icon', fallback=None)
             cls = ''
             if img:
-                if img in ('download', 'github', 'gitlab', 'bitbucketx'):
-                    img = '{root}img/i-' + img + '.svg'
+                if img in ('download', 'github', 'gitlab', 'bitbucket'):
+                    img = '{root}img/i-' + img + '.svg?' + self._assets_version
                 img = '<img src="{}"/>'.format(img.replace('{root}', root))
                 cls = ' iconleft'
             out('<div class="button{}"><a href="{}" title="{}">{}<span>{}</span></a></div>'.format(
@@ -380,15 +381,16 @@ class Renderer:
         head = []
         css = self.config.get('project', 'css', fallback=None)
         if css:
-            head.append('<link href="{}{}" rel="stylesheet" />'.format(root, css))
+            head.append('<link href="{}{}?{}" rel="stylesheet" />'.format(root, css, self._assets_version))
         favicon = self.config.get('project', 'favicon', fallback=None)
         if favicon:
             mimetype, _ = mimetypes.guess_type(favicon)
             mimetype = ' type="{}"'.format(mimetype) if mimetype else ''
             # Favicon is always copied to doc root, so take only the filename
             _, favicon = os.path.split(favicon)
-            head.append('<link rel="shortcut icon" {} href="{}{}"/>'.format(mimetype, root, favicon))
+            head.append('<link rel="shortcut icon" {} href="{}{}?{}"/>'.format(mimetype, root, favicon, self._assets_version))
         out(self._templates['head'].format(
+            version=self._assets_version,
             title=html_title,
             head='\n'.join(head),
             root=root,
@@ -424,16 +426,18 @@ class Renderer:
         out('</div>')
         out('<div class="group three">')
         if prevref:
-            out('<div class="button iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg"/><span>Previous</span></a></div>'.format(
+            out('<div class="button iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg?{}"/><span>Previous</span></a></div>'.format(
                 self._get_ref_href(prevref),
                 prevref.name,
-                root
+                root,
+                self._assets_version
             ))
         if nextref:
-            out('<div class="button iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg"/></a></div>'.format(
+            out('<div class="button iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg?{}"/></a></div>'.format(
                 self._get_ref_href(nextref),
                 nextref.name,
-                root
+                root,
+                self._assets_version
             ))
         out('</div>')
         out('</div>')
@@ -509,7 +513,7 @@ class Renderer:
             yield out
         finally:
             out('</div>')
-            out(self._templates['foot'].format(root=root))
+            out(self._templates['foot'].format(root=root, version=self._assets_version))
 
     def render(self, topref):
         """
@@ -814,7 +818,7 @@ class Renderer:
     def render_search_page(self):
         root = self._get_root_path()
         topref = self.parser.refs['--search']
-        topref.html = [self._templates['search'].format(root=root)]
+        topref.html = [self._templates['search'].format(root=root, version=self._assets_version)]
         return self.render(topref)
 
     def render_landing_page(self):

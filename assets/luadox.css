@@ -86,7 +86,7 @@ div.topbar div.button a img {
     width: 1.5em;
 }
 
-div.topbar div.button a img[src$='.svg'] {
+div.topbar div.button a img[src*='.svg'] {
     filter: invert(1);
 }
 

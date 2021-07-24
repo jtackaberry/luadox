@@ -16,7 +16,7 @@ import glob
 import locale
 
 from .log import log
-from .utils import get_asset_contents
+from .assets import assets
 from .parse import *
 from .render import *
 
@@ -275,6 +275,6 @@ def main():
             if os.path.dirname(name):
                 os.makedirs(os.path.dirname(outfile), exist_ok=True)
             with open(outfile, 'wb') as f:
-                f.write(get_asset_contents(name))
+                f.write(assets.get(name))
     except Exception as e:
         log.exception('unhandled error rendering around %s:%s: %s', parser.ctx.file, parser.ctx.line, e)
