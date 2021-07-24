@@ -636,8 +636,7 @@ class Renderer:
                             out('<td class="meta"></td>')
                             nmeta -= 1
                         _, _, ref.md = self._content_to_markdown(ref.content)
-                        if not fields_compact:
-                            md, _ = self._get_first_sentence(ref.md)
+                        md = self._get_first_sentence(ref.md)[0] if not fields_compact else ref.md
                         if md:
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
@@ -666,8 +665,7 @@ class Renderer:
                             out('<td class="meta"></td>')
                             meta -= 1
                         ref.params, ref.returns, ref.md = self._content_to_markdown(ref.content)
-                        if not functions_compact:
-                            md, _ = self._get_first_sentence(ref.md)
+                        md = self._get_first_sentence(md)[0] if not functions_compact else md
                         out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
                     out('</table>')
