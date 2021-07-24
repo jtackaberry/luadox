@@ -1,6 +1,8 @@
 # LuaDox - Lua Documentation Generator
 
-**👉 [Download the latest release](https://github.com/jtackaberry/luadox/releases/latest).**
+**👉 [Download the latest release](https://github.com/jtackaberry/luadox/releases/latest)**
+
+📘 You can find an example of LuaDox's output **[here](https://reapertoolkit.dev)**
 
 LuaDox is:
  * born out of personal frustration with LDoc which repeatedly failed to work how I expected/wanted
