@@ -424,13 +424,13 @@ class Renderer:
         out('</div>')
         out('<div class="group three">')
         if prevref:
-            out('<div class="button nav iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg"/><span>Previous</span></a></div>'.format(
+            out('<div class="button iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg"/><span>Previous</span></a></div>'.format(
                 self._get_ref_href(prevref),
                 prevref.name,
                 root
             ))
         if nextref:
-            out('<div class="button nav iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg"/></a></div>'.format(
+            out('<div class="button iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg"/></a></div>'.format(
                 self._get_ref_href(nextref),
                 nextref.name,
                 root
