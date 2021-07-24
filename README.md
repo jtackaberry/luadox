@@ -907,12 +907,14 @@ The behavior to automatically discover and parse `require()`d files can be disab
 the `--nofollow` argment or setting `follow = false` in the config file, in which case
 LuaDox will only parse files explicitly passed.
 
-Any option can be defined on the command line, but it may be more convenient to
+Most options can be defined on the command line, but it may be more convenient to
 use a config file.
 
-Config files are ini-style files that define two sections:
+Config files are ini-style files that define these sections:
 * `[project]` for project level settings
 * `[manual]` for manual pages where each page is a separate `id=filename` line
+* `[link<n>]` for user-defined custom links that appear on the center of
+   each page, and where `<n>` is a number that controls the order.
 
 Here's an annotated example `luadox.conf` that describes the available config
 properties.  All properties are optional except for files (although files could
@@ -947,4 +949,28 @@ encoding = utf8
 # will not properly resolve.
 index = intro.md
 tutorial = tut.md
+
+[link1]
+icon = download
+text = Download
+url = {root}index.html#download
+
+[link2]
+icon = github
+text = GitHub
+url = https://github.com/me/myproject
 ```
+
+Link sections are optional. Each section takes these options:
+ * `text` (required): the link's text
+ * `url` (required):
+ * `icon` (optional): the name of a built-in icon, or path to a custom image file.
+     Currently supported built-in icon names are `download`, `github`, `gitlab`, and
+     `bitbucket`.  If the value isn't one of the built-in names then it's treated as
+     a path, where `{root}` will be replaced with the relative path to the document
+     root.
+ * `tooltip` (optional): the tooltip text that appears when the mouse hovers over
+    the hyperlink.
+
+User-defined links currently can't be specified on the command line, they must
+be defined in the config file.
