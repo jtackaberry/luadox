@@ -17,49 +17,94 @@ div.topbar {
     box-sizing: border-box;
     background-color: #465158;
     position: fixed;
-    display: table;
+    display: flex;
+    align-items: center;
     left: 0px;
     top: 0px;
     width: 100%;
     height: 40px;
-    padding: 0 1em;
+    padding: 0 1em 0 0.4em;
     z-index: 10;
     font-size: 90%;
     color: white;
     box-shadow: 0 0px 15px 5px rgba(0, 0, 0, 0.4);
 }
 
-div.topbar > div {
-    display: table-cell;
-    vertical-align: middle;
+div.topbar div.group {
+    display: flex;
+    flex: 1;
 }
-div.topbar div.description {
-    width: 100%;
+
+div.topbar div.group.one {
+    justify-content: flex-start;
+}
+
+div.topbar div.group.two {
+    justify-content: center;
+}
+div.topbar div.group.three {
+    justify-content: flex-end;
 }
 
 div.topbar a {
     color: white;
     border: none;
-    padding: 0.5em 0.5em;
+    padding: 0.5em 1em;
 }
 
-div.topbar div.nav a {
-    float: right;
+div.topbar div.description a {
+    font-size: 100% !important;
+    font-weight: normal !important;
+    margin-left: 0 !important;
+}
+
+div.topbar div.button a {
     margin: 0.375em 0;
-    margin-left: 1em;
     font-size: 80%;
     font-weight: bold;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
 }
 
-div.topbar div.nav a,
-div.topbar div.description a:hover {
+div.topbar div.button.nav a {
+    margin-left: 1em;
+}
+
+div.topbar div.button.nav a,
+div.topbar div.button a:hover {
     background-color: #697983;
     text-shadow: 0 1px rgba(0, 0, 0, 0.5);
     border-radius: 3px;
     border: none;
 }
-div.topbar div a:hover {
+div.topbar div.button.nav a:hover {
     background-color: #8aa0ad;
+}
+
+div.topbar div.button a img {
+    width: 1.5em;
+}
+
+div.topbar div.button a img[src$='.svg'] {
+    filter: invert(1);
+}
+
+div.topbar div.button.iconleft a {
+    padding-left: 0.6em;
+    padding-right: 1em;
+}
+
+div.topbar div.button.iconright a {
+    padding-left: 1em;
+    padding-right: 0.6em;
+}
+
+div.topbar div.button.iconleft a img {
+    padding-right: 0.5em;
+}
+div.topbar div.button.iconright a img {
+    padding-left: 0.5em;
 }
 
 div.sidebar {

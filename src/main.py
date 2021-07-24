@@ -28,6 +28,20 @@ except ImportError:
     # Running from local tree, use dummy value.
     __version__ = 'x.x.x-dev'
 
+# Files from the assets directory to be copied
+ASSETS = [
+    'luadox.css',
+    'prism.css',
+    'prism.js',
+    'js-search.min.js',
+    'search.js',
+    'img/i-left.svg',
+    'img/i-right.svg',
+    'img/i-download.svg',
+    'img/i-github.svg',
+    'img/i-gitlab.svg',
+    'img/i-bitbucket.svg',
+]
 
 class FullHelpParser(argparse.ArgumentParser):
     def error(self, message):
@@ -254,8 +268,11 @@ def main():
             with open(os.path.join(outdir, 'index.html'), 'w', encoding='utf8') as f:
                 f.write(html)
 
-        for name in 'luadox.css', 'prism.css', 'prism.js', 'js-search.min.js', 'search.js':
-            with open(os.path.join(outdir, name), 'w', encoding='utf8') as f:
+        for name in ASSETS:
+            outfile = os.path.join(outdir, name)
+            if os.path.dirname(name):
+                os.makedirs(os.path.dirname(outfile), exist_ok=True)
+            with open(outfile, 'wb') as f:
                 f.write(get_asset_contents(name))
     except Exception as e:
         log.exception('unhandled error rendering around %s:%s: %s', parser.ctx.file, parser.ctx.line, e)

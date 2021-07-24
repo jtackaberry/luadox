@@ -339,6 +339,24 @@ class Renderer:
         elif topref.type == 'manual':
             self._render_manual(topref, topref.html.append)
 
+    def _render_user_buttons(self, topref, root, out):
+        sections = sorted(s for s in self.config.sections() if s.startswith('button'))
+        for section in sections:
+            img = self.config.get(section, 'icon', fallback=None)
+            cls = ''
+            if img:
+                if img in ('download', 'github', 'gitlab', 'bitbucketx'):
+                    img = '{root}img/i-' + img + '.svg'
+                img = '<img src="{}"/>'.format(img.replace('{root}', root))
+                cls = ' iconleft'
+            out('<div class="button{}"><a href="{}" title="{}">{}<span>{}</span></a></div>'.format(
+                cls,
+                self.config.get(section, 'url', fallback='').replace('{root}', root),
+                self.config.get(section, 'tooltip', fallback=''),
+                img or '',
+                self.config.get(section, 'label'),
+            ))
+
     @contextmanager
     def _render_html(self, topref, lines):
         """
@@ -393,15 +411,30 @@ class Renderer:
                 prevref = ref
 
         out('<div class="topbar">')
+        out('<div class="group one">')
         if self.config.has_section('manual') and self.config.get('manual', 'index', fallback=None):
             path = '' if (topref.type == 'manual' and topref.name == 'index') else '../'
-            out('<div class="description"><a href="{}index.html">{}<span> documentation</span></a></div>'.format(path, title))
+            out('<div class="button description"><a href="{}index.html"><span>{} documentation</span></a></div>'.format(path, title))
         else:
-            out('<div class="description">{}<span> documentation</span></div>'.format(title))
+            out('<div class="description"><span>{} documentation</span></div>'.format(title))
+        out('</div>')
+        out('<div class="group two">')
+        self._render_user_buttons(topref, root, out)
+        out('</div>')
+        out('<div class="group three">')
         if prevref:
-            out('<div class="nav"><a href="{}" title="{}">Previous</a></div>'.format(self._get_ref_href(prevref), prevref.name))
+            out('<div class="button nav iconleft"><a href="{}" title="{}"><img src="{}img/i-left.svg"/><span>Previous</span></a></div>'.format(
+                self._get_ref_href(prevref),
+                prevref.name,
+                root
+            ))
         if nextref:
-            out('<div class="nav"><a href="{}" title="{}">Next</a></div>'.format(self._get_ref_href(nextref), nextref.name))
+            out('<div class="button nav iconright"><a href="{}" title="{}"><span>Next</span><img src="{}img/i-right.svg"/></a></div>'.format(
+                self._get_ref_href(nextref),
+                nextref.name,
+                root
+            ))
+        out('</div>')
         out('</div>')
 
         # Determine section headings to construct sidebar.
