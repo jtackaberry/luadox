@@ -22,7 +22,6 @@ from .log import log
 from .reference import *
 
 # TODO: better vararg support
-# TODO: @field
 
 class Parser:
     """
