@@ -665,7 +665,7 @@ class Renderer:
                             out('<td class="meta"></td>')
                             meta -= 1
                         ref.params, ref.returns, ref.md = self._content_to_markdown(ref.content)
-                        md = self._get_first_sentence(md)[0] if not functions_compact else md
+                        md = self._get_first_sentence(ref.md)[0] if not functions_compact else md
                         out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
                     out('</table>')
