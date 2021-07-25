@@ -979,7 +979,7 @@ be defined in the config file.
 
 ## Docker Image
 
-LuaDox is also available as a Docker image:
+LuaDox is also available as a [Docker image on Docker Hub](https://hub.docker.com/r/jtackaberry/luadox):
 
 ```bash
 $ docker run -v ~/src/myproject:/project -w /project/doc jtackaberry/luadox luadox -c luadox.conf
