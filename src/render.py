@@ -157,7 +157,7 @@ class Renderer:
         markdown links.
         """
         # Resolve `ref`
-        block = re.sub(r'`([^` ]+)`', self._render_backtick_ref_markdown_re, block, 0, re.S)
+        block = re.sub(r'(?<!`)`([^` ]+)`', self._render_backtick_ref_markdown_re, block, 0, re.S)
         # Resolve @{ref} and @{ref|text}.  Do this *after* `ref` in case the ref is in the
         # form `@{stuff}`.
         block = re.sub(r'(`)?@{([^}|]+)(?:\|([^}]*))?}(`)?', self._render_ref_markdown_re, block, 0, re.S)
