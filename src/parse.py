@@ -497,11 +497,11 @@ class Parser:
             # Qualifying the name with the current context's scope was a bust, so now
             # look for it in the global space.
             ref = self.refs.get(name)
-        if not ref and self.ctx.ref.type == 'class':
+        if not ref and self.ctx.ref.topref.type == 'class':
             # Not found in global or context's scope, but if the current context is a
             # class then we also search up the class's hierarchy.  (The current ref may
             # be a section so we don't use it, rather use the ref's scope.)
-            hierarchy = self.refs.get(self.ctx.ref.name).hierarchy
+            hierarchy = self.refs.get(self.ctx.ref.topref.name).hierarchy
             for cls in reversed(hierarchy):
                 ref = self.refs.get(cls.name + '.' + name)
                 if ref:
