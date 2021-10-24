@@ -260,9 +260,13 @@ class Reference:
                 self._name = default_scope_name
                 display = display or self._name
         else:
-            if rename:
-                self.symbol = rename
             self._name = self.symbol
+
+        if rename:
+            if '.' in rename:
+                self.symbol = rename
+            else:
+                self.symbol = ''.join(re.split(r'([.:])', self.symbol)[:-1]) + rename
 
         if not display:
             if '.' not in self.symbol and ':' not in self.symbol and scope != '.':
