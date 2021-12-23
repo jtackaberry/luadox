@@ -1,6 +1,6 @@
 ASSETS = $(wildcard assets/*)
 EXT = $(wildcard ext/* ext/*/*)
-TAG := $(subst v, , $(or $(shell git describe --tags 2>/dev/null), $(shell echo v0.0.1)))
+TAG := $(subst v,,$(or $(shell git describe --tags 2>/dev/null), $(shell echo v0.0.1)))
 RELEASE := luadox-$(TAG)
 
 luadox: build/pkg.zip
@@ -44,7 +44,8 @@ build/pkg/luadox/version.py: .git/refs/tags .git/refs/heads
 	@echo "__version__ = \"$(TAG)\"" >> build/pkg/luadox/version.py
 
 docker: luadox
-	docker build .
+	docker build --pull .
+
 
 .PHONY: clean
 clean:
