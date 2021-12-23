@@ -46,6 +46,11 @@ build/pkg/luadox/version.py: .git/refs/tags .git/refs/heads
 docker: luadox
 	docker build --pull .
 
+.PHONY: release
+release: build/luadox
+	cd build && tar zcf $(RELEASE).tar.gz luadox
+	cd build && zip $(RELEASE).zip luadox
+
 
 .PHONY: clean
 clean:
