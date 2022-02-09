@@ -985,10 +985,7 @@ LuaDox is also available as a [Docker image on Docker Hub](https://hub.docker.co
 $ docker run -v ~/src/myproject:/project -w /project/doc jtackaberry/luadox luadox -c luadox.conf
 ```
 
-Of course, that's a bit cumbersome, having to set up the volume mount and working
-directory, so for command line use the release binary is probably more convenient.
-
-However the Docker image can be useful when generating documentation as part of a CI/CD
-pipeline.  See
-[here](https://github.com/jtackaberry/rtk/blob/master/.github/workflows/build.yml) for a
-working example using GitHub Actions.
+Of course, that's a bit cumbersome, having to set up the volume mount and
+working directory, so for command line use the release binary is probably more
+convenient.  However the Docker image can be useful when generating
+documentation as part of a CI/CD pipeline, such as GitHub Actions.
