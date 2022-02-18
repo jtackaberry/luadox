@@ -384,7 +384,7 @@ class Renderer:
         if not sections and topref.type == 'manual':
             log.critical('manual "%s" has no sections (empty doc or possible symbol collision)', topref.name)
             sys.exit(1)
-        title = self.config.get('project', 'name', fallback='Lua Project')
+        title = self.config.get('project', 'title', fallback=self.config.get('project', 'name', fallback='Lua Project'))
         html_title = '{} - {}'.format(
             sections[0].display if topref.type == 'manual' else topref.name,
             title
@@ -426,7 +426,7 @@ class Renderer:
             else:
                 prevref = ref
 
-        hometext = self.config.get('project', 'title', fallback=title)
+        hometext = self.config.get('project', 'name', fallback=title)
         out('<div class="topbar">')
         out('<div class="group one">')
         if self.config.has_section('manual') and self.config.get('manual', 'index', fallback=None):

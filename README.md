@@ -925,7 +925,9 @@ also be passed on the command line if you prefer).
 ```ini
 [project]
 # Project name that is displayed on the top bar of each page
-name = My Lua Project
+name = My Lua Project | Where Awesome Things Happen
+# HTML title that is appended to every page. If not defined, name is used.
+title = My Lua Project
 # A list of files or directories for LuaDox to parse.  Globs are supported.
 # This can be spread across multiple lines if you want, as long as the
 # other lines are indented.
