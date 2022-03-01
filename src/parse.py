@@ -457,7 +457,9 @@ class Parser:
                     if ref == topref:
                         ref.flags['display'] = heading
                         ref.update()
-                    symbol =  re.sub(r'[^a-zA-Z0-9 ]', '', heading.lower()).replace(' ', '_')
+                    # Symbol is used for URL fragment
+                    symbol = re.sub(r'[^a-zA-Z0-9- ]', '', heading.lower())
+                    symbol = re.sub(r' +', '_', symbol).replace('_-_', '-')
                     ref = Reference(self, file=path, line=n, type='section', scopes=[topref], symbol=symbol)
                     ref.flags['display'] = heading
                     ref.flags['level'] = level
