@@ -491,7 +491,9 @@ class Parser:
         ref = None
         if self.ctx.ref:
             # Search the upward in the current context's scope for the given name.
-            for scope in [self.ctx.ref.name] + [r.name for r in self.ctx.ref.scopes]:
+            # ref's scopes may be None if it was an implicitly added module.
+            scopes = self.ctx.ref.scopes or []
+            for scope in [self.ctx.ref.name] + [r.name for r in scopes]:
                 ref = self.refs.get(scope + '.' + name)
                 if ref:
                     break
