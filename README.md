@@ -637,6 +637,7 @@ displayed and referenced.
 
 --- Normally this field would be qualified as utils.MYCONST, but this makes it appear
 -- as a global value, and can be referenced elsewhere as @{MYCONST}
+-- @scope .
 MYCONST = 42
 ```
 
