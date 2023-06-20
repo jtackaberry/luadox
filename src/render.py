@@ -56,6 +56,22 @@ class Renderer:
     """
     Takes a Parser object and provides an interface to generate rendered HTML.
     """
+    # Common abbreviations with periods that are considered when determining what is the
+    # first sentence of a markdown block
+    RE_ABBREV = re.compile(r'(e\.?g\.|i\.?e\.|etc\.|et al\.|vs\.)', flags=re.I|re.S)
+    # Regexp patterns that progressively narrow down a markdown block to its first
+    # sentence
+    RE_FIRST_SENTENCE = (
+        # First pass: Move everything after a paragraph break (two newlines) to
+        # the remaining block
+        re.compile(r'^(.*\n\s*\n)(.*)$', flags=re.S),
+        # Second pass: Move (prepend) anything including and below a markdown heading
+        # to the remaining block.  Fixes #6.
+        re.compile(r'(.*)(?:^|\n)(#.*)', flags=re.S),
+        # Final pass: take everything up to the first period as the first sentence.
+        re.compile(r'^(.+?[.?!])(?: |$|\n)(.*)', flags=re.S),
+    )
+
     def __init__(self, parser):
         self.parser = parser
         self.config = parser.config
@@ -266,19 +282,23 @@ class Renderer:
 
     def _get_first_sentence(self, md):
         """
-        Returns the first sentence from the given markdown.
+        Returns a 2-tuple of the first sentence from the given markdown, and
+        all remaining.
         """
         # This is rather cheeky, but just handles these common abbreviations so they don't
         # interpreted as end-of-sentence.
-        escape = lambda s: s.replace('e.g.', 'e\x00g\x00').replace('i.e.', 'i\x00e\x00')
+        escape = lambda m: m.group(1).replace('.', '\x00')
         unescape = lambda s: s.replace('\x00', '.')
-        m = re.search(r'^(.+?[.?!])(?: |$|\n)(.*)', escape(md), re.S)
-        if m:
-            sentence, remaining = m.groups()
-            # Remove period, but preserve other sentence-ending punctuation
-            return unescape(sentence).strip().rstrip('.'), unescape(remaining).strip()
-        else:
-            return md, ''
+        first = self.RE_ABBREV.sub(escape, md)
+        remaining = ''
+        for pat in self.RE_FIRST_SENTENCE:
+            m = pat.search(first)
+            if m:
+                first, pre = m.groups()
+                remaining = pre + remaining
+        # Remove period but preserve other sentence-ending punctuation from first
+        # sentence
+        return unescape(first).strip().rstrip('.'), unescape(remaining).strip()
 
     def _markdown_to_html(self, md):
         """
