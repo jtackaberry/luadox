@@ -44,7 +44,7 @@ build/pkg/luadox/version.py: .git/refs/tags .git/refs/heads
 	@echo "__version__ = \"$(TAG)\"" >> build/pkg/luadox/version.py
 
 docker: luadox
-	docker build --pull .
+	docker build --pull -t luadox:latest .
 
 .PHONY: release
 release: build/luadox
