@@ -116,9 +116,9 @@ def crawl(parser, path, follow, seen, bases, encoding):
         if not os.path.exists(path):
             log.critical('directory given, but %s does not exist', path)
             sys.exit(1)
+    path = os.path.abspath(path)
     if path in seen:
         return
-    path = os.path.abspath(path)
     seen.add(path)
     log.info('parsing %s', path)
     requires = parser.parse_source(open(path, encoding=encoding))
