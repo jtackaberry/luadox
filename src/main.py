@@ -204,7 +204,7 @@ def main():
                    help='Path to favicon file')
     p.add_argument('--nofollow', action='store_true',
                    help="Disable following of require()'d files (default false)")
-    p.add_argument('--encoding', action='store', type=str, metavar='CODEC', default=locale.getpreferredencoding(),
+    p.add_argument('--encoding', action='store', type=str, metavar='CODEC', default=None,
                    help='Character set codec for input (default {})'.format(locale.getpreferredencoding()))
     p.add_argument('files', type=str, metavar='[MODNAME=]FILE', nargs='*',
                    help='List of files to parse or directories to crawl with optional module name alias')
@@ -227,7 +227,7 @@ def main():
         bases.setdefault(aliasparts, set()).add(fname if os.path.isdir(fname) else os.path.dirname(fname))
 
     parser = Parser(config)
-    encoding = config.get('project', 'encoding')
+    encoding = config.get('project', 'encoding', fallback=locale.getpreferredencoding())
     try:
         # Parse given files/directories, with following if enabled.
         follow = config.get('project', 'follow', fallback='true').lower() in ('true', '1', 'yes')
