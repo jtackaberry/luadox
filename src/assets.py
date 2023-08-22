@@ -16,7 +16,6 @@ import os
 import posixpath
 import glob
 import hashlib
-from datetime import datetime
 from zipfile import ZipFile
 
 class Assets:
@@ -49,10 +48,9 @@ class Assets:
         else:
             return open(path, 'rb')
 
-    def get(self, fname, encoding=False):
+    def get(self, fname):
         with self.open(fname) as f:
-            data = f.read()
-            return data.decode(encoding) if encoding else data
+            return f.read()
 
     def hash(self):
         h = hashlib.sha256()

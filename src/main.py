@@ -37,7 +37,7 @@ from .render import *
 try:
     # version.py is generated at build time, so we are running from the proper
     # distribution.
-    from .version import __version__
+    from .version import __version__  # pyright: ignore
 except ImportError:
     # Running from local tree, use dummy value.
     __version__ = 'x.x.x-dev'
@@ -64,7 +64,7 @@ class FullHelpParser(argparse.ArgumentParser):
         sys.exit(2)
 
 
-def get_file_by_module(path, module, bases):
+def get_file_by_module(module, bases):
     """
     Attempts to discover the lua source file for the given module name that was
     required relative to the given base paths.
@@ -124,7 +124,7 @@ def crawl(parser, path, follow, seen, bases, encoding):
     requires = parser.parse_source(open(path, encoding=encoding))
     if follow:
         for r in requires:
-            newpath = get_file_by_module(path, r, bases)
+            newpath = get_file_by_module(r, bases)
             if not newpath:
                 log.error('could not discover source file for module %s', r)
             else:
@@ -165,7 +165,10 @@ def get_files(config):
     """
     files = config.get('project', 'files', fallback='').strip().splitlines()
     for spec in files:
-        alias, patterns = re.search(r'(?:([^/\\]+)=)?(.*)', spec).groups()
+        m = re.search(r'(?:([^/\\]+)=)?(.*)', spec)
+        if not m:
+            continue
+        alias, patterns = m.groups()
         for pattern in shlex.split(patterns):
             for fname in glob.glob(pattern):
                 yield alias, fname

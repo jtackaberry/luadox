@@ -20,7 +20,7 @@ import re
 import mimetypes
 from contextlib import contextmanager
 
-import commonmark
+import commonmark.blocks
 import commonmark_extensions.tables
 
 from .assets import assets
@@ -40,7 +40,7 @@ class CustomRendererWithTables(commonmark_extensions.tables.RendererWithTables):
 # Thanks to hughdavenport
 class TableWaitingForBug3(commonmark_extensions.tables.Table):
     @staticmethod
-    def continue_(parser=None, container=None):
+    def continue_(parser, container=None):
         ln = parser.current_line
         if not parser.indented and commonmark.blocks.peek(ln, parser.next_nonspace) == "|":
             parser.advance_next_nonspace()
@@ -50,7 +50,7 @@ class TableWaitingForBug3(commonmark_extensions.tables.Table):
         else:
             return 1
         return 0
-commonmark.blocks.Table = TableWaitingForBug3
+commonmark.blocks.Table = TableWaitingForBug3 # pyright: ignore
 
 class Renderer:
     """
@@ -83,9 +83,9 @@ class Renderer:
         parser.refs['--search'] = Reference(parser, type='search', symbol='Search')
 
         self._templates = {
-            'head': assets.get('head.tmpl.html', encoding='utf8'),
-            'foot': assets.get('foot.tmpl.html', encoding='utf8'),
-            'search': assets.get('search.tmpl.html', encoding='utf8'),
+            'head': assets.get('head.tmpl.html').decode('utf8'),
+            'foot': assets.get('foot.tmpl.html').decode('utf8'),
+            'search': assets.get('search.tmpl.html').decode('utf8'),
         }
         self._assets_version = assets.hash()[:7]
 
@@ -101,6 +101,13 @@ class Renderer:
             return ''
         else:
             return '../'
+
+    def get_indent_level(self, s):
+        """
+        Returns the number of spaces on left side of the string.
+        """
+        m = re.search(r'^( *)', s)
+        return len(m.group(1)) if m else 0
 
     def _get_ref_link_info(self, ref):
         """
@@ -212,7 +219,7 @@ class Renderer:
                     lines.pop()
                 # Dedent all lines according to the indentation of the
                 # first line.
-                indent = len(re.search(r'^( *)', lines[0]).group(1))
+                indent = self.get_indent_level(lines[0])
                 target.extend([l[indent:] for l in lines])
                 target.append('```')
             elif tag == 'tparam' and len(args) >= 2:
@@ -249,7 +256,7 @@ class Renderer:
             tag, args = self.parser._parse_tag(line, require_comment=strip_comments)
             if strip_comments:
                 line = line.lstrip('-').rstrip()
-            indent = len(re.search(r'^( *)', line).group(1))
+            indent = self.get_indent_level(line)
 
             if tagstack:
                 last_tag_indent = tagstack[-1][2]

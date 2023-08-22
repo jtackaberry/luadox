@@ -292,7 +292,7 @@ class Parser:
             if line.startswith('--'):
                 if ref:
                     tag, args = self._parse_tag(line)
-                    if tag in section_tags:
+                    if tag in section_tags and args:
                         section = args[0]
                         ref.update(
                             type=tag, line=n, scopes=scopes, symbol=args[0],
@@ -301,7 +301,7 @@ class Parser:
                             level=table_level,
                         )
                         sectionref = ref
-                    if tag == 'within':
+                    if tag == 'within' and args:
                         ref.update(within=args[0])
                     elif tag == 'section':
                         # Nothing special needed here.
@@ -337,14 +337,13 @@ class Parser:
                         )
                         f.content.append((n, ' '.join(args[1:])))
                         self._add_reference(f, modref)
-                    elif tag == 'alias':
+                    elif tag == 'alias' and args:
                         self.refs[args[0]] = ref
                     elif tag == 'compact':
                         ref.flags['compact'] = args or ['fields', 'functions']
                     elif tag == 'fullnames':
                         ref.flags['fullnames'] = True
-                    elif tag in ('meta', 'scope', 'rename', 'inherits', 'display'):
-                        oldname = ref._name
+                    elif tag in ('meta', 'scope', 'rename', 'inherits', 'display') and args:
                         ref.flags[tag] = ' '.join(args)
                         # Some of these tags can affect display or name, so call update() to
                         # clear any cached attributes.
@@ -352,7 +351,7 @@ class Parser:
                         if tag == 'rename' and ref.type == scopes[-1].type and ref.symbol == scopes[-1].name:
                             # The current reference matches the last scope, so rename this scope.
                             scopes[-1].name = ref.flags[tag]
-                    elif tag in ('type',):
+                    elif tag in ('type',) and args:
                         ref.flags[tag] = args[0].split('|')
                     elif tag in ('order',):
                         ref.flags[tag] = args
@@ -501,11 +500,11 @@ class Parser:
             # Qualifying the name with the current context's scope was a bust, so now
             # look for it in the global space.
             ref = self.refs.get(name)
-        if not ref and self.ctx.ref.topref.type == 'class':
+        if not ref and self.ctx.ref and self.ctx.ref.topref.type == 'class':
             # Not found in global or context's scope, but if the current context is a
             # class then we also search up the class's hierarchy.  (The current ref may
             # be a section so we don't use it, rather use the ref's scope.)
-            hierarchy = self.refs.get(self.ctx.ref.topref.name).hierarchy
+            hierarchy = self.refs[self.ctx.ref.topref.name].hierarchy
             for cls in reversed(hierarchy):
                 ref = self.refs.get(cls.name + '.' + name)
                 if ref:

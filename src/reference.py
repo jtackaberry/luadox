@@ -15,6 +15,7 @@
 __all__ = ['Reference', 'Context']
 
 import re
+from typing import Optional
 
 from .log import log
 
@@ -25,14 +26,15 @@ class Context:
     There is a single instance held by Parser that's used throughout the program.
     """
     def __init__(self):
-        self.file = None
-        self.line = None
-        self.ref = None
+        self.file: Optional[str] = None
+        self.line: Optional[int] = None
+        self.ref: Optional[Reference] = None
 
     def update(self, **kwargs):
         for k, v in kwargs.items():
             setattr(self, k, v)
         if kwargs.get('ref'):
+            assert(isinstance(self.ref, Reference))
             if 'file' not in kwargs:
                 self.file = self.ref.file
             if 'line' not in kwargs:
@@ -69,27 +71,32 @@ class Reference:
         self.implicit = False
         # The type of reference this is: 'module', 'class', 'field', 'section', 'manual'
         # or a special 'search' type for the search page.
-        self.type = None
+        self.type: Optional[str] = None
         # Lua source file the ref was parsed from
-        self.file = None
+        self.file: Optional[str] = None
         # Line number from the above file where the ref was declared
-        self.line = None
+        self.line: Optional[int] = None
         # A stack of Reference objects this ref is contained within. Used to resolve names by
         # crawling up the scope stack.
-        self.scopes = None
+        self.scopes: Optional[list[Reference]] = None
         # Name of symbol for @within
-        self.within = None
+        self.within: Optional[str] = None
         # The (string) name of the section this Reference belongs to.
-        self.section = None
+        self.section: Optional[str] = None
         # The Reference object (of type 'section') for the above section name
-        self.sectionref = None
+        self.sectionref: Optional[Reference] = None
         # The original as-parsed name of the reference.  This is like the name property
         # but whereas name is normalized (e.g. Class:method is normalized to Class.method),
         # the symbol is how it appears in code (e.g. Class:method) and is used for
         # display purposes.
         #
         # Some References such as type=manual don't have symbols.
-        self.symbol = None
+        self.symbol: Optional[str] = None
+        # Number of nested scope levels this reference belongs to, where -1 is an implicit
+        # module.  Note that this is different from flags['level'] (which indicates the
+        # level of a heading).
+        self.level = 0
+
         # Contextual information depending on type (e.g. for functions it's information
         # about arguments).
         self.extra = None
@@ -143,7 +150,12 @@ class Reference:
         """
         if not self._name:
             self._set_name()
+        assert(self._name is not None)
         return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
 
     @property
     def topsym(self):
@@ -172,6 +184,8 @@ class Reference:
     @property
     def display_compact(self):
         display = self.flags.get('display')
+        assert(isinstance(self.symbol, str))
+        assert(isinstance(self.topsym, str))
         if display:
             return display
         elif self.symbol.startswith(self.topsym):
@@ -205,6 +219,7 @@ class Reference:
         qualified, however, which means it's up to the user to ensure global uniqueness if
         cross-page references are needed.
         """
+        assert(self.symbol is not None)
         assert(self.type and (self.type in ('manual', 'search') or self.symbol))
 
         # Construct fully qualified reference name, using the explicitly provided display
@@ -220,6 +235,7 @@ class Reference:
         if self.type in ('field', 'function'):
             # Function and field types *must* have a scope
             assert(self.scopes)
+            assert(self.scope is not None)
             # Heuristic: if scope is a class and this field is under a static table, then
             # we consider it a metaclass static field and remove the 'static' part.
             if self.scope.type == 'class' and '.static.' in self.symbol:
@@ -247,7 +263,6 @@ class Reference:
                     if s.type in ('class', 'module') or '.' in s.name:
                         # We've found a topref, so we're done.
                         break
-                maybe = '{}.{}'.format('.'.join(parts), symbol)
                 self._name = '{}.{}'.format(default_scope_name, symbol)
             else:
                 self._name = symbol
@@ -265,10 +280,13 @@ class Reference:
         if rename:
             if '.' in rename:
                 self.symbol = rename
-            else:
+            elif self.symbol:
                 self.symbol = ''.join(re.split(r'([.:])', self.symbol)[:-1]) + rename
 
         if not display:
+            # Make LSP happy (self.symbol may have been redefined above0
+            assert(self.symbol is not None)
+            assert(default_scope_name)
             if '.' not in self.symbol and ':' not in self.symbol and scope != '.':
                 display = (scope or default_scope_name) + '.' + self.symbol
             else:
