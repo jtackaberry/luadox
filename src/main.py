@@ -163,15 +163,12 @@ def get_files(config):
     """
     Generates the files/directories to parse based on config.
     """
-    files = config.get('project', 'files', fallback='').strip().splitlines()
-    for spec in files:
-        m = re.search(r'(?:([^/\\]+)=)?(.*)', spec)
-        if not m:
-            continue
-        alias, patterns = m.groups()
-        for pattern in shlex.split(patterns):
-            for fname in glob.glob(pattern):
-                yield alias, fname
+    filelines = config.get('project', 'files', fallback='').strip().splitlines()
+    for line in filelines:
+        for spec in shlex.split(line):
+            for modalias, globexpr in re.findall(r'(?:([^/\\]+)=)?(.*)', spec):
+                for fname in glob.glob(globexpr):
+                    yield modalias, fname
 
 
 def copy_file_from_config(section, option, outdir):
