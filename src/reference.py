@@ -12,12 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__all__ = ['Reference', 'Context']
+__all__ = ['RefType', 'Reference', 'Context']
 
 import re
-from typing import Optional
+import enum
+from typing import Optional, Union, List, Dict, Any
 
 from .log import log
+
+class RefType(enum.Enum):
+    UNKNOWN = ''
+    MODULE = 'module'
+    CLASS = 'class'
+    FUNCTION = 'function'
+    FIELD = 'field'
+    SECTION = 'section'
+    TABLE = 'table'
+    MANUAL = 'manual'
+    SEARCH = 'search'
+
 
 class Context:
     """
@@ -30,7 +43,10 @@ class Context:
         self.line: Optional[int] = None
         self.ref: Optional[Reference] = None
 
-    def update(self, **kwargs):
+    # TODO: this method only takes file, line, and ref args, but we need
+    # way to discriminate between explicitly set None or not set at all
+    # if we switch away from kwargs
+    def update(self, **kwargs) -> None:
         for k, v in kwargs.items():
             setattr(self, k, v)
         if kwargs.get('ref'):
@@ -55,25 +71,38 @@ class Reference:
     the page the ref exists on) and its name (which uniquely identifies the ref on the
     top-level page).
     """
-    def __init__(self, parser, **kwargs):
-        # The Parser object that created us.  Primarily used to resolve related
-        # references, such as toprefs.
-        self.parser = parser
+    def __init__(self, parser_refs: Dict[str, 'Reference'], file: str, **kwargs) -> None:
+        # The refs dict from the Parser object that created us.  Used to resolve ancestor
+        # references (topref and hierarchy)
+        self.parser_refs = parser_refs
 
-        # A dict that can be used from the outside to store some external metadata
-        # about the Reference.  For example, Parser._add_reference() uses it to
-        # determine of the ref had already been added, and Render.preprocess() uses
-        # it to store a flag as to whether the ref has any renderable content.
-        self.userdata = {}
+        # Lua source file the ref was parsed from
+        self.file: str = file
 
+        # These are mandatory attributes: all Reference objects must have values assigned,
+        # so for type purposes we don't allow None, although we'll initialize to the zero
+        # value for that type.
+        #
+        # The type of reference this is: 'module', 'class', 'field', 'section', 'manual'
+        # or a special 'search' type for the search page.
+        self.type: RefType = RefType.UNKNOWN
+        # The original as-parsed name of the reference.  This is like the name property
+        # but whereas name is normalized (e.g. Class:method is normalized to Class.method),
+        # the symbol is how it appears in code (e.g. Class:method) and is used for
+        # display purposes.
+        #
+        # All References must have symbols. 
+        self.symbol: str = ''
         # Whether this is an implicitly generated module reference (i.e. a module that
         # lacks a @module tag but yet has documented elements).
         self.implicit = False
-        # The type of reference this is: 'module', 'class', 'field', 'section', 'manual'
-        # or a special 'search' type for the search page.
-        self.type: Optional[str] = None
-        # Lua source file the ref was parsed from
-        self.file: Optional[str] = None
+        # Number of nested scope levels this reference belongs to, where -1 is an implicit
+        # module.  Note that this is different from flags['level'] (which indicates the
+        # level of a heading).
+        self.level = 0
+
+        # These are optional attributes, which are only set depending on the type.
+        #
         # Line number from the above file where the ref was declared
         self.line: Optional[int] = None
         # A stack of Reference objects this ref is contained within. Used to resolve names by
@@ -85,58 +114,52 @@ class Reference:
         self.section: Optional[str] = None
         # The Reference object (of type 'section') for the above section name
         self.sectionref: Optional[Reference] = None
-        # The original as-parsed name of the reference.  This is like the name property
-        # but whereas name is normalized (e.g. Class:method is normalized to Class.method),
-        # the symbol is how it appears in code (e.g. Class:method) and is used for
-        # display purposes.
-        #
-        # Some References such as type=manual don't have symbols.
-        self.symbol: Optional[str] = None
-        # Number of nested scope levels this reference belongs to, where -1 is an implicit
-        # module.  Note that this is different from flags['level'] (which indicates the
-        # level of a heading).
-        self.level = 0
 
+        # A dict that can be used from the outside to store some external metadata
+        # about the Reference.  For example, Parser._add_reference() uses it to
+        # determine of the ref had already been added, and Render.preprocess() uses
+        # it to store a flag as to whether the ref has any renderable content.
+        self.userdata: dict[str, Any] = {}
         # Contextual information depending on type (e.g. for functions it's information
         # about arguments).
-        self.extra = None
+        self.extra: list[str] = []
         # A list of lines containing the documented content for this section.  Each element
         # is a 2-tuple in the form (line number, text) where line number is the specific line
         # in self.file where the comment appears, and text is in markdown format.
-        self.content = []
+        self.content: list[tuple[int, str]] = []
         # A map of modifiers that apply to this Reference that affect how it is rendered
-        self.flags = {}
+        self.flags: dict[str, Any] = {}
 
         # Internal caches for computed properties
         #
         # Fully scoped and normalized reference name
-        self._name = None
+        self._name: str|None = None
         # Name of the top-level symbol this Reference belongs to
-        self._topsym = None
+        self._topsym: str|None = None
         # Display name of the Referencae name
-        self._display = None
+        self._display: str|None = None
         # Compact form of display name (topsym stripped)
-        self._display_compact = None
+        self._display_compact: str|None = None
 
         if kwargs:
             self.update(**kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return 'Reference(type={}, _name={}, symbol={}, file={}, line={})'.format(
-            self.type, self._name, self.symbol, self.file, self.line
+            self.type.value, self._name, self.symbol, self.file, self.line
         )
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> None:
+        if 'type' in kwargs:
+            RefType(kwargs['type'])
         for k, v in kwargs.items():
             setattr(self, k, v)
-        if self.type == 'classmod':
-            self.type = 'class'
         self._name = None
         self._topsym = None
         self._display = None
 
     @property
-    def scope(self):
+    def scope(self) -> Union['Reference', None]:
         """
         The immediate scope of the Reference, or None if this Reference has no
         containing scope (i.e. implicit module references, manual, and search).
@@ -144,46 +167,48 @@ class Reference:
         return self.scopes[-1] if self.scopes else None
 
     @property
-    def name(self):
+    def name(self) -> str:
         """
         The fully qualified proper name by which this Reference can be linked.
         """
         if not self._name:
             self._set_name()
-        assert(self._name is not None)
+            assert(self._name)
         return self._name
 
     @name.setter
-    def name(self, name):
+    def name(self, name: str) -> None:
         self._name = name
 
     @property
-    def topsym(self):
+    def topsym(self) -> str:
         """
         Returns the symbol of the top-level
         """
         if not self._topsym:
             self._set_topsym()
+            assert(self._topsym)
         return self._topsym
 
     @property
-    def topref(self):
+    def topref(self) -> 'Reference':
         """
         Returns the Reference object for the top-level resource this ref
         belongs to.
         """
         # If there are no scopes, we *are* the topref
-        return self if not self.scopes else self.parser.refs[self.topsym]
+        return self if not self.scopes else self.parser_refs[self.topsym]
 
     @property
-    def display(self):
+    def display(self) -> str:
         if not self._display:
             self._set_name()
+            assert(self._display is not None)
         return self._display
 
     @property
-    def display_compact(self):
-        display = self.flags.get('display')
+    def display_compact(self) -> str:
+        display: str|None = self.flags.get('display')
         assert(isinstance(self.symbol, str))
         assert(isinstance(self.topsym, str))
         if display:
@@ -194,20 +219,20 @@ class Reference:
             return self.symbol
 
     @property
-    def hierarchy(self):
-        if self.type != 'class':
+    def hierarchy(self) -> List['Reference']:
+        if self.type != RefType.CLASS:
             return []
         else:
-            classes = [self]
-            while classes[0].flags.get('inherits'):
-                superclass = self.parser.refs.get(classes[0].flags['inherits'])
+            clsrefs: list[Reference] = [self]
+            while clsrefs[0].flags.get('inherits'):
+                superclass = self.parser_refs.get(clsrefs[0].flags['inherits'])
                 if not superclass:
                     break
                 else:
-                    classes.insert(0, superclass)
-            return classes
+                    clsrefs.insert(0, superclass)
+            return clsrefs
 
-    def _set_name(self):
+    def _set_name(self) -> None:
         """
         Derives the fully qualified name for this reference based on the scope.  These aren't
         necessarily *globally* unique, but they must be unique within a given top-level
@@ -219,26 +244,25 @@ class Reference:
         qualified, however, which means it's up to the user to ensure global uniqueness if
         cross-page references are needed.
         """
-        assert(self.symbol is not None)
-        assert(self.type and (self.type in ('manual', 'search') or self.symbol))
+        assert(self.symbol)
 
         # Construct fully qualified reference name, using the explicitly provided display
         # name if provided.
-        display = self.flags.get('display')
+        display: str|None = self.flags.get('display')
         # Determine if there is an explicit @scope for this reference or the section
         # we belong to.
-        scope = self.flags.get('scope')
+        scope: str|None = self.flags.get('scope')
         # If we were @rename'd
-        rename = self.flags.get('rename')
+        rename: str|None = self.flags.get('rename')
         default_scope_name = self.scope.symbol if self.scope else self.symbol
 
-        if self.type in ('field', 'function'):
+        if self.type in (RefType.FIELD, RefType.FUNCTION):
             # Function and field types *must* have a scope
             assert(self.scopes)
             assert(self.scope is not None)
             # Heuristic: if scope is a class and this field is under a static table, then
             # we consider it a metaclass static field and remove the 'static' part.
-            if self.scope.type == 'class' and '.static.' in self.symbol:
+            if self.scope.type == RefType.CLASS and '.static.' in self.symbol:
                 self.symbol = self.symbol.replace('.static', '')
 
             symbol = (rename or self.symbol).replace(':', '.')
@@ -248,7 +272,7 @@ class Reference:
                 scope = self.sectionref.flags.get('scope')
             if scope:
                 # User-defined scope.
-                symbol = re.split(r'[.:]', self.symbol)[-1]
+                symbol: str = re.split(r'[.:]', self.symbol)[-1]
                 if scope != '.':
                     delim = ':' if ':' in self.symbol else '.'
                     symbol = '{}{}{}'.format(scope, delim, symbol)
@@ -257,16 +281,16 @@ class Reference:
                 display = display or symbol
             elif '.' not in symbol:
                 # Derive full name based on ref scope.
-                parts = []
+                parts: list[str] = []
                 for s in reversed(self.scopes):
                     parts.insert(0, s.name)
-                    if s.type in ('class', 'module') or '.' in s.name:
+                    if s.type in (RefType.CLASS, RefType.MODULE) or '.' in s.name:
                         # We've found a topref, so we're done.
                         break
                 self._name = '{}.{}'.format(default_scope_name, symbol)
             else:
                 self._name = symbol
-        elif self.type == 'manual' or (self.scope and self.scope.type == 'manual'):
+        elif self.type == RefType.MANUAL or (self.scope and self.scope.type == RefType.MANUAL):
             if self.scope:
                 # Section within manual
                 self._name = '{}.{}'.format(default_scope_name, self.symbol)
@@ -293,7 +317,7 @@ class Reference:
                 display = self.symbol
         self._display = display
 
-    def _set_topsym(self):
+    def _set_topsym(self) -> None:
         """
         Derives the top-level symbol for this ref.
 
@@ -301,21 +325,18 @@ class Reference:
         on their scope.  For example the top-level symbol for a field of some class
         is the class name.
         """
-        assert(self.type)
+        assert(self.type != RefType.UNKNOWN)
         # Find the class or module this Reference is associated with.
         # If type is a class or module then it is by definition associated with itself.
-        if self.type in ('class', 'module') or not self.scope:
+        if self.type in (RefType.CLASS, RefType.MODULE) or not self.scope:
             self._topsym = self.name
-        elif self.scope.type in ('manual', 'search'):
+        elif self.scope.type in (RefType.MANUAL, RefType.SEARCH):
             self._topsym = self.scope.symbol
         else:
             assert(self.scopes)
             for s in reversed(self.scopes):
-                if s.type == 'class' or s.type == 'module':
+                if s.type == RefType.CLASS or s.type == RefType.MODULE:
                     self._topsym = s.name
                     break
             else:
                 log.error('%s:%s: could not determine which class or module %s belongs to', self.file, self.line, self.name)
-                return
-        return self
-

@@ -16,10 +16,11 @@ import os
 import posixpath
 import glob
 import hashlib
+from typing import IO
 from zipfile import ZipFile
 
 class Assets:
-    def __init__(self, path):
+    def __init__(self, path: str) -> None:
         try:
             self.zipfile = ZipFile(__loader__.archive)
         except AttributeError:
@@ -41,18 +42,18 @@ class Assets:
         # Strip path prefix from files list.
         self.files = [f[len(self.path)+1:] for f in files]
 
-    def open(self, fname):
+    def open(self, fname: str) -> IO[bytes]:
         path = self._join(self.path, fname)
         if self.zipfile:
             return self.zipfile.open(path)
         else:
             return open(path, 'rb')
 
-    def get(self, fname):
+    def get(self, fname: str) -> bytes:
         with self.open(fname) as f:
             return f.read()
 
-    def hash(self):
+    def hash(self) -> str:
         h = hashlib.sha256()
         for f in sorted(self.files):
             h.update(self.get(f))

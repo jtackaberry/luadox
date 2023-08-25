@@ -22,17 +22,19 @@ if sys.hexversion < 0x03050000:
 
 import os
 import re
-import configparser
 import shutil
 import argparse
 import shlex
 import glob
 import locale
+from configparser import ConfigParser
+from typing import Generator, Union, Dict, Tuple, Set
 
 from .log import log
 from .assets import assets
 from .parse import *
 from .render import *
+from .reference import RefType
 
 try:
     # version.py is generated at build time, so we are running from the proper
@@ -41,6 +43,12 @@ try:
 except ImportError:
     # Running from local tree, use dummy value.
     __version__ = 'x.x.x-dev'
+
+# A type used for mapping a user-defined Lua module name to a set of paths (or glob
+# expressions).  The module name is split on '.' so the dict key is a tuple, but the
+# modulie name can also be None if the user didn't provide any explicit module name, in
+# which case the module name will be inferred.
+BasePathsType = Dict[Union[Tuple[str, ...], None], Set[str]]
 
 # Files from the assets directory to be copied
 ASSETS = [
@@ -58,13 +66,13 @@ ASSETS = [
 ]
 
 class FullHelpParser(argparse.ArgumentParser):
-    def error(self, message):
+    def error(self, message: str) -> None:
         sys.stderr.write('error: %s\n' % message)
         self.print_help()
         sys.exit(2)
 
 
-def get_file_by_module(module, bases):
+def get_file_by_module(module, bases: BasePathsType) -> Union[str, None]:
     """
     Attempts to discover the lua source file for the given module name that was
     required relative to the given base paths.
@@ -76,7 +84,7 @@ def get_file_by_module(module, bases):
     for aliasparts, paths in bases.items():
         alias_matches = modparts[:len(aliasparts)] == list(aliasparts) if aliasparts else False
         for base in paths:
-            if alias_matches:
+            if alias_matches and aliasparts is not None:
                 # User-defined module name for this path matches the requested
                 # module name.  Strip away the intersecting components of the
                 # module name and check this path for what's left.  For example,
@@ -104,7 +112,7 @@ def get_file_by_module(module, bases):
                     return p
 
 
-def crawl(parser, path, follow, seen, bases, encoding):
+def crawl(parser: Parser, path: str, follow: bool, seen: Set[str], bases: BasePathsType, encoding: str) -> None:
     """
     Parses all Lua source files starting with the given path and recursively
     crawling all files referenced in the code via 'require' statements.
@@ -131,13 +139,13 @@ def crawl(parser, path, follow, seen, bases, encoding):
                 crawl(parser, newpath, follow, seen, bases, encoding)
 
 
-def get_config(args):
+def get_config(args: argparse.Namespace) -> ConfigParser:
     """
     Consolidates command line arguments and config file, returning a ConfigParser
     instance that has the reconciled configuration such that command line arguments
     take precedence
     """
-    config = configparser.ConfigParser(inline_comment_prefixes='#')
+    config = ConfigParser(inline_comment_prefixes='#')
     config.add_section('project')
     config.add_section('manual')
     if args.config:
@@ -159,7 +167,7 @@ def get_config(args):
     return config
 
 
-def get_files(config):
+def get_files(config: ConfigParser) -> Generator[Tuple[str, str], None, None]:
     """
     Generates the files/directories to parse based on config.
     """
@@ -171,7 +179,7 @@ def get_files(config):
                     yield modalias, fname
 
 
-def copy_file_from_config(section, option, outdir):
+def copy_file_from_config(section: str, option: str, outdir: str) -> None:
     fname = config.get(section, option, fallback=None)
     if not fname:
         return
@@ -217,18 +225,19 @@ def main():
 
     # Derive a set of base paths based on the input files that will act as search
     # paths for crawling
-    bases = {}
+    bases: BasePathsType = {}
     for alias, fname in files:
         fname = os.path.abspath(fname)
         aliasparts = tuple(alias.split('.')) if alias else None
-        bases.setdefault(aliasparts, set()).add(fname if os.path.isdir(fname) else os.path.dirname(fname))
+        paths = bases.setdefault(aliasparts, set())
+        paths.add(fname if os.path.isdir(fname) else os.path.dirname(fname))
 
     parser = Parser(config)
     encoding = config.get('project', 'encoding', fallback=locale.getpreferredencoding())
     try:
         # Parse given files/directories, with following if enabled.
         follow = config.get('project', 'follow', fallback='true').lower() in ('true', '1', 'yes')
-        seen = set()
+        seen: set[str] = set()
         for _, fname in files:
             crawl(parser, fname, follow, seen, bases, encoding)
         pages = config.items('manual') if config.has_section('manual') else []
@@ -256,15 +265,15 @@ def main():
         for (_, name), ref in parser.topsyms.items():
             if ref.userdata.get('empty') and ref.implicit:
                 # Reference has no content and it was also implicitly generated, so we don't render it.
-                log.info('not rendering empty %s %s', ref.type, ref.name)
+                log.info('not rendering empty %s %s', ref.type.value, ref.name)
                 continue
-            if ref.type == 'manual' and ref.name == 'index':
+            if ref.type == RefType.MANUAL and ref.name == 'index':
                 typedir = outdir
             else:
-                typedir = os.path.join(outdir, ref.type)
+                typedir = os.path.join(outdir, ref.type.value)
             os.makedirs(typedir, exist_ok=True)
             outfile = os.path.join(typedir, name + '.html')
-            log.info('rendering %s %s -> %s', ref.type, name, outfile)
+            log.info('rendering %s %s -> %s', ref.type.value, name, outfile)
             html = renderer.render(ref)
             with open(outfile, 'w', encoding='utf8') as f:
                 f.write(html)
@@ -277,7 +286,7 @@ def main():
         with open(os.path.join(outdir, 'search.html'), 'w', encoding='utf8') as f:
             f.write(html)
 
-        if not parser.get_reference('manual', 'index'):
+        if not parser.get_reference(RefType.MANUAL, 'index'):
             # The user hasn't specified an index manual page, so we generate a blank
             # landing page that at least presents the sidebar with available links.
             html = renderer.render_landing_page()

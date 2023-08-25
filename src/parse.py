@@ -16,53 +16,57 @@ __all__ = ['Parser']
 import sys
 import os
 import re
-import collections
+from collections import OrderedDict
+from configparser import ConfigParser
+from typing import IO, Optional, Union, Tuple, List
 
 from .log import log
 from .reference import *
 
 # TODO: better vararg support
 
+ParseFuncResult = Tuple[Union[str, None], Union[List[str], None]] 
+
 class Parser:
     """
     Parses lua source files and standalone manual pages for later rendering
     by a Renderer instance.
     """
-    def __init__(self, config):
+    def __init__(self, config: ConfigParser) -> None:
         self.config = config
-        # A complete list of all Reference objects keyed by reference type.
-        self.parsed = {
-            'module': [],
-            'class': [],
-            'function': [],
-            'field': [],
-            'section': [],
-            'table': [],
-            'manual': []
+        # A complete list of all Reference objects keyed by Reference.type.
+        self.parsed: dict[RefType, list[Reference]] = {
+            RefType.MODULE: [],
+            RefType.CLASS: [],
+            RefType.FUNCTION: [],
+            RefType.FIELD: [],
+            RefType.SECTION: [],
+            RefType.TABLE: [],
+            RefType.MANUAL: [],
         }
         # A dict of only top-level References ("toprefs"), keyed by a 2-tuple of (type,
         # name) where type is one of 'class', 'module', or 'manual' and name is the fully
         # qualified name of the reference.
         #
         # (type, name) -> Reference
-        self.topsyms = collections.OrderedDict()
+        self.topsyms: OrderedDict[tuple[RefType,str], Reference] = OrderedDict()
 
         # Maps top-level symbols to all its sections, where each value is a dict mapping
         # section name to a Reference object.  The order that the sections are defined
         # is preserved.
         #
         # topsym -> OrderedDict(sectionname -> Reference)
-        self.sections = {}
+        self.sections: dict[str, OrderedDict[str, Reference]] = {}
         # A dict of all Reference objects, keyed by fully qualified name.
         #
         # name -> Reference
-        self.refs = {}
+        self.refs: dict[str, Reference] = {}
 
         # This holds the context of the current file and reference being processed
         self.ctx = Context()
 
 
-    def _next_line(self, strip=True):
+    def _next_line(self, strip=True) -> Tuple[Union[int, None], Union[str, None]]:
         """
         Returns the next line from the file last passed to parse_source().  Lines
         are stripped of any trailing comments.
@@ -74,11 +78,11 @@ class Parser:
         else:
             return None, None
 
-    def _strip_trailing_comment(self, line):
+    def _strip_trailing_comment(self, line: str) -> str:
         return re.sub(r'--.*', '', line)
 
 
-    def _parse_function(self, line):
+    def _parse_function(self, line: str) -> ParseFuncResult:
         """
         Looks for a function signature in the given raw line of code, and returns
         the name and a list of arguments if found, or a 2-tuple of Nones if not
@@ -96,18 +100,18 @@ class Parser:
         arguments = [arg.strip() for arg in argstr.replace(' ', '').split(',') if arg.strip()]
         while not terminated:
             # The function signature is spread across multiple lines
-            n, line = self._next_line()
-            if line is None:
+            n, nextline = self._next_line()
+            if nextline is None:
                 log.error('%s:%s: function definition is truncated', self.ctx.file, n)
                 return None, None
-            m = re.search(r'''([^)]*)(\))?''', line)
+            m = re.search(r'''([^)]*)(\))?''', nextline)
             if m:
                 argstr, terminated = m.groups()
                 arguments.extend([arg.strip() for arg in argstr.replace(' ', '').split(',') if arg.strip()])
         return name, arguments
 
 
-    def _parse_field(self, line):
+    def _parse_field(self, line: str) -> ParseFuncResult: 
         """
         Looks for a field assignment in the given raw line of code, and returns the
         name of the field, or a 2-tuple of Nones if no field was found.
@@ -126,7 +130,7 @@ class Parser:
             return None, None
 
 
-    def _parse_tag(self, line, require_comment=True):
+    def _parse_tag(self, line: str, require_comment=True) -> ParseFuncResult: 
         """
         Looks for a @tag in the given raw line of code, and returns the name of
         the tag and any arguments as a list, or a 2-tuple of Nones if no tag was
@@ -140,7 +144,7 @@ class Parser:
             return None, None
 
 
-    def _add_reference(self, ref, modref=None):
+    def _add_reference(self, ref: Reference, modref: Optional[Reference]=None) -> None:
         """
         Registers the given Reference object with the parser.
 
@@ -155,8 +159,9 @@ class Parser:
             log.error('%s:%s: reference "%s" with the same name already exists', ref.file, ref.line, ref.name)
             return
 
+        assert(ref.symbol and ref.type != RefType.UNKNOWN)
         # Register the class, module, or manual page as a top-level symbol
-        if ref.type in ('class', 'module', 'manual'):
+        if ref.type in (RefType.CLASS, RefType.MODULE, RefType.MANUAL):
             if ref.name in self.topsyms:
                 log.error('%s:%s: %s conflicts with another class or module', ref.file, ref.line, ref.name)
             else:
@@ -173,14 +178,14 @@ class Parser:
                 if modref:
                     log.warning(
                         '%s:%s: implicitly adding module "%s" due to @%s; recommend adding explicit @module beforehand',
-                        ref.file, ref.line, modref.name, ref.type
+                        ref.file, ref.line, modref.name, ref.type.value
                     )
                     self._add_reference(modref)
 
         # Register the section against the class/module.
-        if ref.type in ('section', 'class', 'module', 'table'):
+        if ref.type in (RefType.SECTION, RefType.CLASS, RefType.MODULE, RefType.TABLE):
             if ref.topsym not in self.sections:
-                self.sections[ref.topsym] = collections.OrderedDict()
+                self.sections[ref.topsym] = OrderedDict()
             sections = self.sections[ref.topsym]
             # Only add the ref to the sections list (well, ordered dict) if it
             # doesn't already exist.  The first occurrence sets the order where
@@ -189,7 +194,7 @@ class Parser:
             if ref.symbol not in sections:
                 sections[ref.symbol] = ref
 
-        if ref.type == 'field':
+        if ref.type == RefType.FIELD:
             if ref.symbol.startswith('self.'):
                 ref.symbol = ref.symbol[5:]
         self.parsed[ref.type].append(ref)
@@ -201,16 +206,16 @@ class Parser:
                 if sectref != ref and sectref.name == ref.name:
                     conflict = sectref
                     break
-            if not conflict and ref.type != 'section':
+            if not conflict and ref.type != RefType.SECTION:
                 conflict = self.refs[ref.name]
             if conflict and conflict != ref:
                 log.error('%s:%s: %s "%s" conflicts with %s name at %s:%s',
-                          ref.file, ref.line, ref.type, ref.name, conflict.type, conflict.file, conflict.line)
+                          ref.file, ref.line, ref.type.value, ref.name, conflict.type, conflict.file, conflict.line)
         else:
             self.refs[ref.name] = ref
         ref.userdata['added'] = True
 
-    def _check_disconnected_reference(self, ref):
+    def _check_disconnected_reference(self, ref: Union[Reference, None]) -> bool:
         """
         Logs a warning if the reference is disconnected (that is, a documentation
         block that is not associated with any symbol).
@@ -225,7 +230,7 @@ class Parser:
                 log.warning('%s:%s: comment block is not connected with any section, ignoring', ref.file, ref.line)
         return False
 
-    def parse_source(self, f):
+    def parse_source(self, f: IO[str]) -> List[str]:
         """
         Parses a lua source file, scanning for documented elements (in lines prefixed
         with 3 dashes), and generating the corresponding Reference objects, registering
@@ -238,7 +243,7 @@ class Parser:
         be used by the caller for crawling.
         """
         code = f.read()
-        path = getattr(f, 'name', '<generated>')
+        path = f.name if hasattr(f, 'name') else '<generated>'
 
         # TODO: preprocess all lines within --[[-- ... ]] comment block with --- prefixes
         # in order to support multi-line block comments.
@@ -254,15 +259,15 @@ class Parser:
         else:
             modname = fname.replace('.lua', '')
         # Reference object for last section, defaulting to one for the module itself
-        modref = Reference(self, file=path, line=1, type='module', symbol=modname, implicit=True, level=-1)
-        scopes = [modref]
+        modref = Reference(self.refs, file=path, line=1, type=RefType.MODULE, symbol=modname, implicit=True, level=-1)
+        scopes: list[Reference] = [modref]
 
         # List of modules that were discovered via a 'require' statement in the given
         # Lua source file. This is returned, and the caller can then attempt to discover
         # the source file for the given module and call parse_source() on that.
-        requires = []
+        requires: list[str] = []
         # Last section
-        section = None
+        section: str|None = None
 
         # Whether we should try to discover field/function from the next line
         # of code.  Usually this will be True but e.g. if we encounter a
@@ -273,29 +278,30 @@ class Parser:
         # Tags which will generate a new section.
         section_tags = 'section', 'classmod', 'class', 'module', 'table'
         # The current Reference object.
-        ref = None
+        ref: Reference|None = None
         # Reference to the current section, default to implicit module ref
         sectionref = modref
         self.ctx.update(file=path)
         while True:
             n, line = self._next_line(False)
-            if line is None:
+            if n is None or line is None:
                 break
             self.ctx.update(line=n)
             if re.search(r'^(---[^-]|---+$)', line) and not ref:
                 # Starting a content block for something to be included in the docs.  Create
-                # a new Reference, against which we will accumulate all comments and other
+                # a new Reference against which we will accumulate all comments and other
                 # modifier tags.  The Reference is finally added when the comment block is
                 # terminated (either by a blank line or a line of code).
-                ref = Reference(self, file=path, line=n, scopes=scopes)
+                ref = Reference(self.refs, file=path, line=n, scopes=scopes)
                 self.ctx.update(ref=ref)
             if line.startswith('--'):
                 if ref:
                     tag, args = self._parse_tag(line)
                     if tag in section_tags and args:
                         section = args[0]
+                        typ = RefType(tag if tag != 'classmod' else 'class')
                         ref.update(
-                            type=tag, line=n, scopes=scopes, symbol=args[0],
+                            type=typ, line=n, scopes=scopes, symbol=args[0],
                             section=section, extra=args[1:],
                             sectionref=sectionref,
                             level=table_level,
@@ -303,11 +309,8 @@ class Parser:
                         sectionref = ref
                     if tag == 'within' and args:
                         ref.update(within=args[0])
-                    elif tag == 'section':
-                        # Nothing special needed here.
-                        pass
                     elif tag == 'classmod' or tag == 'class':
-                        if scopes[-1].type == 'class':
+                        if scopes[-1].type == RefType.CLASS:
                             # This is a class being declared within an existing class scope.  We
                             # don't support nested classes, so remove the previous class from the
                             # scopes list (which affects this new class's Reference).
@@ -321,7 +324,6 @@ class Parser:
                         # As with class above, replace scopes list.
                         scopes = [scopes[0], ref]
                     elif tag == 'table':
-                        #scopes.append(Scope('table', section, table_level, last_section))
                         scopes.append(ref)
                         parse_next_code_line = False
                     elif tag == 'field':
@@ -331,12 +333,12 @@ class Parser:
                         # make a shallow copy of the current scopes otherwise the popping below
                         # that occurs when the table concludes will end up modifying the scopes
                         # here after the fact.
-                        f = Reference(
-                            self, type=tag, file=path, line=n, scopes=scopes[:],
+                        field = Reference(
+                            self.refs, file=path, type=RefType.FIELD, line=n, scopes=scopes[:],
                             symbol=args[0], section=section, sectionref=sectionref
                         )
-                        f.content.append((n, ' '.join(args[1:])))
-                        self._add_reference(f, modref)
+                        field.content.append((n, ' '.join(args[1:])))
+                        self._add_reference(field, modref)
                     elif tag == 'alias' and args:
                         self.refs[args[0]] = ref
                     elif tag == 'compact':
@@ -344,7 +346,7 @@ class Parser:
                     elif tag == 'fullnames':
                         ref.flags['fullnames'] = True
                     elif tag in ('meta', 'scope', 'rename', 'inherits', 'display') and args:
-                        ref.flags[tag] = ' '.join(args)
+                        ref.flags[str(tag)] = ' '.join(args)
                         # Some of these tags can affect display or name, so call update() to
                         # clear any cached attributes.
                         ref.update()
@@ -352,17 +354,22 @@ class Parser:
                             # The current reference matches the last scope, so rename this scope.
                             scopes[-1].name = ref.flags[tag]
                     elif tag in ('type',) and args:
-                        ref.flags[tag] = args[0].split('|')
+                        ref.flags[str(tag)] = args[0].split('|')
                     elif tag in ('order',):
-                        ref.flags[tag] = args
+                        ref.flags[str(tag)] = args
+                    elif tag == 'section':
+                        # Nothing special needed here.
+                        pass
                     else:
                         ref.content.append((n, line))
             else:
+                # This line doesn't start with a comment, but may have one at the end
+                # which we remove here.
                 line = self._strip_trailing_comment(line)
                 # FIXME: nested table tracking doesn't support --[[ ]]-- style content.
                 table_level += line.count('{')
                 table_level -= line.count('}')
-                while scopes[-1].type == 'table' and table_level <= scopes[-1].level:
+                while scopes[-1].type == RefType.TABLE and table_level <= scopes[-1].level:
                     scopes.pop()
                     section = scopes[-1].section
 
@@ -375,11 +382,10 @@ class Parser:
                     if ref is None:
                         continue
 
-                    order = ('field', 'function') if scopes[-1].type == 'table' else ('function', 'field')
-                    for tp in order:
-                        name, extra = getattr(self, '_parse_' + tp)(line)
+                    for typ in (RefType.FIELD, RefType.FUNCTION):
+                        name, extra = getattr(self, '_parse_' + typ.value)(line)
                         scope = scopes[-1]
-                        if tp == 'field' and scope.type == 'module' and scope.name == name:
+                        if typ == RefType.FIELD and scope.type == RefType.MODULE and scope.name == name:
                             # If we have a field that's the same name as the current
                             # module we don't register it, as this is a common pattern.
                             pass
@@ -387,12 +393,12 @@ class Parser:
                             if ref.symbol:
                                 log.error(
                                     '%s:%s: %s defined before %s %s has terminated; separate with a blank line',
-                                    ref.file, ref.line, tp, ref.type, ref.name
+                                    ref.file, ref.line, typ.value, ref.type.value, ref.name
                                 )
                             ref.update(
                                 # Create a shallow copy of current scopes so subsequent modifications
                                 # don't retroactively apply.
-                                type=tp, file=path, line=n, scopes=scopes[:], symbol=name,
+                                type=typ, file=path, line=n, scopes=scopes[:], symbol=name,
                                 section=section, sectionref=sectionref, extra=extra
                             )
                             break
@@ -415,7 +421,7 @@ class Parser:
         return requires
 
 
-    def parse_manual(self, scope, f):
+    def parse_manual(self, scope: str, f: IO[str]) -> None:
         """
         Parses a markdown file as a manual page.
 
@@ -434,11 +440,11 @@ class Parser:
         text is converted to lower case and all spaces converted to underscores.
         """
         content = f.read()
-        path = getattr(f, 'name', '<generated>')
+        path = f.name if hasattr(f, 'name') else '<generated>'
 
         # Create the top-level reference for the manual page.  Any lines in the markdown
         # before the first heading will accumulate in this topref's content.
-        topref = Reference(self, file=path, line=1, type='manual', symbol=scope, source=content, level=-1)
+        topref = Reference(self.refs, file=path, line=1, type=RefType.MANUAL, symbol=scope, source=content, level=-1)
         self._add_reference(topref)
 
         ref = topref
@@ -459,7 +465,7 @@ class Parser:
                     # Symbol is used for URL fragment
                     symbol = re.sub(r'[^a-zA-Z0-9- ]', '', heading.lower())
                     symbol = re.sub(r' +', '_', symbol).replace('_-_', '-')
-                    ref = Reference(self, file=path, line=n, type='section', scopes=[topref], symbol=symbol)
+                    ref = Reference(self.refs, file=path, line=n, type=RefType.SECTION, scopes=[topref], symbol=symbol)
                     ref.flags['display'] = heading
                     ref.flags['level'] = level
                     ref.update()
@@ -472,12 +478,12 @@ class Parser:
 
             ref.content.append((n, line))
 
-    def get_reference(self, type, name):
-        for ref in self.parsed[type]:
+    def get_reference(self, typ: RefType, name: str) -> Union[Reference, None]:
+        for ref in self.parsed[typ]:
             if ref.name == name:
                 return ref
 
-    def _resolve_ref(self, name):
+    def _resolve_ref(self, name: str) -> Union[Reference, None]:
         """
         Finds the Reference object for the given reference name.
 
@@ -487,7 +493,7 @@ class Parser:
         If the name can't be resolved then None is returned.
         """
         name = name.replace(':', '.').replace('(', '').replace(')', '')
-        ref = None
+        ref: Reference|None = None
         if self.ctx.ref:
             # Search the upward in the current context's scope for the given name.
             # ref's scopes may be None if it was an implicitly added module.
@@ -500,13 +506,13 @@ class Parser:
             # Qualifying the name with the current context's scope was a bust, so now
             # look for it in the global space.
             ref = self.refs.get(name)
-        if not ref and self.ctx.ref and self.ctx.ref.topref.type == 'class':
+        if not ref and self.ctx.ref and self.ctx.ref.topref.type == RefType.CLASS:
             # Not found in global or context's scope, but if the current context is a
             # class then we also search up the class's hierarchy.  (The current ref may
             # be a section so we don't use it, rather use the ref's scope.)
             hierarchy = self.refs[self.ctx.ref.topref.name].hierarchy
-            for cls in reversed(hierarchy):
-                ref = self.refs.get(cls.name + '.' + name)
+            for clsref in reversed(hierarchy):
+                ref = self.refs.get(clsref.name + '.' + name)
                 if ref:
                     break
         if not ref:
@@ -517,8 +523,8 @@ class Parser:
             sections = self.sections[ref.topsym]
             if ref.within not in sections:
                 # This reference is @within another topsym.  We need to find it.
-                candidates = set()
-                for (_, topsym), cmref in self.topsyms.items():
+                candidates: set[str] = set()
+                for _, topsym in self.topsyms:
                     sections = self.sections[topsym]
                     if ref.within in sections:
                         candidates.add(topsym)
@@ -533,13 +539,13 @@ class Parser:
 
         return ref
 
-    def _reorder_refs(self, refs, topref=None):
+    def _reorder_refs(self, refs: List[Reference], topref: Optional[Reference]=None) -> List[Reference]:
         """
         Reorders the given list of Reference objects according to any @order tags.
         """
-        first = []
-        ordered = list(refs)[:]
-        last = []
+        first: list[Reference] = []
+        ordered = refs[:]
+        last: list[Reference] = []
         for ref in refs:
             if topref and topref != ref.topref:
                 # Sanity checks that the topref for this section matches the topref
@@ -572,7 +578,7 @@ class Parser:
         return first + ordered + last
 
 
-    def _get_sections(self, topref):
+    def _get_sections(self, topref: Reference) -> List[Reference]:
         """
         Yields section refs for the given topref while honoring user-defined ordering
         (via the @order tag)
@@ -580,10 +586,10 @@ class Parser:
         if topref.name not in self.sections:
             return []
         sections = self.sections[topref.name].values()
-        return self._reorder_refs(sections, topref)
+        return self._reorder_refs(list(sections), topref)
 
 
-    def _get_elements_in_section(self, tp, section, topsym):
+    def _get_elements_in_section(self, typ: RefType, section: str, topsym: Union[str, None]) -> List[Reference]:
         """
         Returns a list of Reference objects of type tp in the given section.
         Used to display a list of functions and fields within the context of
@@ -593,8 +599,8 @@ class Parser:
         # the given section name is present within.  If it's in the given topsym,
         # we search that one for tp, otherwise we use the section from outside
         # the topsym (and log a warning if there are multiple options).
-        found = set()
-        for cm, sections in self.sections.items():
+        found: set[str] = set()
+        for sections in self.sections.values():
             for ref in sections.values():
                 if section == ref.section:
                     found.add(ref.topsym)
@@ -607,11 +613,11 @@ class Parser:
             log.warning(
                 'section "%s" referenced by %s is ambiguous as it exists '
                 'in multiple classes or modules (%s) but %s lacks documented %ss',
-                section, topsym, ', '.join(found), topsym, tp
+                section, topsym, ', '.join(found), topsym, typ
             )
 
-        elems = []
-        for ref in self.parsed[tp]:
+        elems: list[Reference] = []
+        for ref in self.parsed[typ]:
             if section == (ref.within or ref.section) and (not topsym or ref.topsym == topsym):
                 elems.append(ref)
         return self._reorder_refs(elems)
