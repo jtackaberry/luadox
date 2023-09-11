@@ -1,4 +1,4 @@
-# Copyright 2021 Jason Tackaberry
+# Copyright 2021-2023 Jason Tackaberry
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import os
 import re
 import mimetypes
 from contextlib import contextmanager
-from typing import Union, Match, Tuple, List, Dict, Optional, Callable, Generator
+from typing import Union, Match, Tuple, List, Callable, Generator, Type
 
 import commonmark.blocks
 import commonmark_extensions.tables
@@ -28,6 +28,7 @@ from .assets import assets
 from .log import log
 from .reference import *
 from .parse import *
+from .utils import *
 
 # Effectively disable implicit code blocks
 commonmark.blocks.CODE_INDENT = 1000
@@ -52,29 +53,6 @@ class TableWaitingForBug3(commonmark_extensions.tables.Table):
             return 1
         return 0
 commonmark.blocks.Table = TableWaitingForBug3 # pyright: ignore
-
-class HTMLRenderData:
-    """
-    Data class containing attributes related to HTML rendering, added to
-    Reference.userdata dict.
-    """
-    # String segments that, when joined, represents the full HTML content for the
-    # reference
-    html: List[str]
-    heading: str
-    body: str
-    params: Union[Dict[str, Tuple[List[str], str]], None]
-    returns: Union[List[Tuple[List[str], str]], None]
-    md: str
-
-    @classmethod
-    def get(cls, ref: Reference) -> 'HTMLRenderData':
-        if 'html' not in ref.userdata:
-            ref.userdata['html'] = cls()
-        return ref.userdata['html']
-
-    def __init__(self):
-        self.html = []
 
 
 class Renderer:
@@ -104,8 +82,11 @@ class Renderer:
 
         # Create a pseudo Reference for the search page using the special 'search' type.
         # This is used to ensure the relative paths are correct. Use the name '--search'
-        # as this won't conflict with any user-provided names.
-        parser.refs['--search'] = Reference(parser.refs, file='search.html', type=RefType.SEARCH, symbol='Search')
+        # as this won't conflict with any user-provided names (because Lua comments begin
+        # with '--').
+        ref = TopRef(parser.refs, file='search.html', symbol='--search')
+        ref.flags['display'] = 'Search'
+        parser.refs['--search'] = ref
 
         self._templates = {
             'head': assets.get('head.tmpl.html').decode('utf8'),
@@ -123,18 +104,11 @@ class Renderer:
         # this topref's file.
         assert(self.ctx.ref)
         viatopref = self.ctx.ref.topref
-        if (viatopref.type == RefType.MANUAL and viatopref.name == 'index') or \
-           viatopref.type == RefType.SEARCH:
+        if (isinstance(viatopref, ManualRef) and viatopref.name == 'index') or \
+           viatopref.symbol == '--search':
             return ''
         else:
             return '../'
-
-    def get_indent_level(self, s: str) -> int:
-        """
-        Returns the number of spaces on left side of the string.
-        """
-        m = re.search(r'^( *)', s)
-        return len(m.group(1)) if m else 0
 
     def _get_ref_link_info(self, ref: Reference) -> Tuple[str, str]:
         """
@@ -147,9 +121,9 @@ class Renderer:
         except KeyError:
             raise KeyError('top-level reference "%s" not found (from "%s")' % (topsym, ref.name)) from None
         prefix = self._get_root_path()
-        if ref.topref.type != RefType.MANUAL or ref.topref.name != 'index':
-            prefix += '{}/'.format(topref.type.value)
-        if ref.topref.type == RefType.MANUAL and ref.symbol:
+        if not isinstance(ref.topref, ManualRef) or ref.topref.name != 'index':
+            prefix += '{}/'.format(topref.type)
+        if isinstance(ref.topref, ManualRef) and ref.symbol:
             # Manuals don't use fully qualified fragments.
             fragment = '#' + ref.symbol if ref.scopes else ''
         else:
@@ -175,7 +149,7 @@ class Renderer:
         return '[{tick}{text}{parens}{tick}]({href})'.format(
             tick=backtick,
             text=text or ref.name,
-            parens='()' if ref.type == RefType.FUNCTION and not text else '',
+            parens='()' if isinstance(ref, FunctionRef) and not text else '',
             href=self._get_ref_href(ref)
         )
 
@@ -199,6 +173,7 @@ class Renderer:
         if ref:
             return self._render_ref_markdown(ref, text=m.group(1), code=True)
         else:
+            # Couldn't resolve the ref, just return back the original text.
             return '`{}`'.format(m.group(1))
 
     def _refs_to_markdown(self, block: str) -> str:
@@ -213,132 +188,6 @@ class Renderer:
         block = re.sub(r'(`)?@{([^}|]+)(?:\|([^}]*))?}(`)?', self._render_ref_markdown_re, block, 0, re.S)
         return block
 
-    def _content_to_markdown(self, content: List[Tuple[int, str]], strip_comments=True) -> Tuple[
-            Union[Dict[str, Tuple[List[str], str]], None],
-            Union[List[Tuple[List[str], str]], None],
-            str
-        ]:
-        """
-        Converts a docstring block into markdown.
-
-        Docstring blocks can appear in sections, or as content associated with a
-        function definition or field.
-
-        This function returns 3 values: a dict of name -> (types, docstring) for @tparam
-        tags, a list of (types, docstrings) for @treturn tags, and a string holding the
-        converted content to markdown.
-        """
-        if not content:
-            return None, None, ''
-        output: list[str] = []
-        params: dict[str, tuple[list[str], str]] = {}
-        returns: list[tuple[list[str], str]] = []
-
-        # List of (tag, args, indent, lines)
-        tagstack: list[tuple[str, list[str], int, list[str]]] = []
-        supported_tags = 'tparam', 'treturn', 'usage', 'example', 'code', 'see', 'warning', 'note'
-
-        def end_tag():
-            tag, args, indent, lines = tagstack.pop()
-            target = tagstack[-1][3] if tagstack else output
-            if tag in ('usage', 'example'):
-                target.append('##### ' + tag.title())
-            if tag in ('usage', 'example', 'code'):
-                target.append('```lua')
-                # Remove trailing newlines.
-                while lines and not lines[-1].strip():
-                    lines.pop()
-                # Dedent all lines according to the indentation of the
-                # first line.
-                indent = self.get_indent_level(lines[0])
-                target.extend([l[indent:] for l in lines])
-                target.append('```')
-            elif tag == 'tparam' and len(args) >= 2:
-                types = args[0].split('|')
-                name = args[1]
-                params[name] = types, ' '.join(args[2:] + lines)
-            elif tag == 'treturn':
-                types = args[0].split('|')
-                doc = ' '.join(args[1:] + lines)
-                returns.append((types, doc))
-            elif tag == 'see':
-                refs = ['@{{{}}}'.format(see) for see in args]
-                target.append('\x01\x03See also {}</div>'.format(', '.join(refs)))
-            elif tag == 'warning' or tag == 'note':
-                html = '\x01\x02{}\x01{}\x01{}\n</div></div>\n'
-                heading = ' '.join(args) if args else tag.title()
-                target.append(html.format(tag, heading, '\n'.join(lines)))
-
-        # FIXME: this (frustratingly uncommented) function doesn't pass the smell test.
-        def end_tags(all, line: Optional[str]=None, indent: Optional[int]=None):
-            if not all:
-                end_tag()
-            else:
-                while tagstack:
-                    end_tag()
-                    if line and tagstack:
-                        last_tag_indent = tagstack[-1][2]
-                        tagstack[-1][3].append(line)
-                        line = None
-            return line
-
-        last_line = content[-1][0]
-        for n, line in content:
-            self.ctx.update(line=n)
-            tag, args = self.parser._parse_tag(line, require_comment=strip_comments)
-            if strip_comments:
-                line = line.lstrip('-').rstrip()
-            indent = self.get_indent_level(line)
-
-            if tagstack:
-                last_tag_indent = tagstack[-1][2]
-                # Determine threshold at which we will consider the last tag to have
-                # terminated.
-                if tag:
-                    # Any tag at the same level as the last tag (or below) will close
-                    threshold = last_tag_indent
-                else:
-                    threshold = last_tag_indent
-                if not tag and indent > threshold and line:
-                    tagstack[-1][3].append(line)
-                    line = None
-                if n == last_line or (line and indent <= threshold):
-                    line = end_tags(n == last_line, line if not tag else None, indent)
-
-            if tag and args is not None:
-                tagstack.append((tag, args, indent, []))
-                if tag not in supported_tags:
-                    log.error('%s:%s: unknown tag @%s', self.ctx.file, n, tag)
-                elif n == last_line:
-                    end_tags(n == last_line)
-            elif line is not None:
-                if tagstack:
-                    last = tagstack[-1]
-                    last[3].append(line)
-                else:
-                    output.append(line)
-        return params, returns, '\n'.join(output)
-
-    def _get_first_sentence(self, md: str) -> Tuple[str, str]:
-        """
-        Returns a 2-tuple of the first sentence from the given markdown, and
-        all remaining.
-        """
-        # This is rather cheeky, but just handles these common abbreviations so they don't
-        # interpreted as end-of-sentence.
-        escape = lambda m: m.group(1).replace('.', '\x00')
-        unescape = lambda s: s.replace('\x00', '.')
-        first = self.RE_ABBREV.sub(escape, md)
-        remaining = ''
-        for pat in self.RE_FIRST_SENTENCE:
-            m = pat.search(first)
-            if m:
-                first, pre = m.groups()
-                remaining = pre + remaining
-        # Remove period but preserve other sentence-ending punctuation from first
-        # sentence
-        return unescape(first).strip().rstrip('.'), unescape(remaining).strip()
-
     def _markdown_to_html(self, md: str) -> str:
         """
         Renders the given markdown as HTML and returns the result.
@@ -347,14 +196,14 @@ class Renderer:
         parser = commonmark_extensions.tables.ParserWithTables()
         ast = parser.parse(md)
         html = CustomRendererWithTables().render(ast)
+
         def replace_admonition(m: Match[str]):
-            type, title = m.groups()
-            return '<div class="admonition {}"><div class="title">{}</div><div class="body"><p>'.format(type, title)
-        html = re.sub(r'\x01\x02([^\x01]+)\x01([^\x01]+)\x01', replace_admonition, html)
-        html = html.replace('\x01\x03', '<div class="see">')
-        # As a result of our disgusting abuse of commonmark, we end up with divs inside
-        # paragraphs, which is invalid. Take care of this now.
-        html = html.replace('<p><div', '<div').replace('</div></p>', '</div>')
+            type, title, content = m.group(1).split('\x02')
+            # content = content.replace('<p></p>', '')
+            return '<div class="admonition {}"><div class="title">{}</div><div class="body"><p>{}</p>\n</div></div>'.format(type, title, content.rstrip())
+
+        html = re.sub(r'<p>\x01adm([^\x03]+)\x03\s*</p>', replace_admonition, html, flags=re.S)
+        html = re.sub(r'<p>\x01see([^\x03]+)\x03\s*</p>', '<div class="see">See also \\1</div>', html, flags=re.S)
         return html
 
     def _markdown_to_text(self, md: str) -> str:
@@ -377,9 +226,14 @@ class Renderer:
         text = re.sub(r'@{[^|]+\|([^}]+)\}', '\\1', text)
         # Just a reference
         text = re.sub(r'@{([^}]+)\}', '\\1', text)
-        # Custom things like admonitions
-        text = re.sub(r'\x01(\x02|\x03).*(</div>|\x01)', '', text)
-        text = text.replace('</div>', '')
+        # Replace admonissions with text elements
+        text = re.sub(
+            r'\x01adm[^\x02]+\x02([^\x03]+)\x03',
+            lambda m: m.group(1).replace('\x02', ' '),
+            text,
+            flags=re.S)
+        # Remove other special encoded content
+        text = re.sub(r'\x01([^\x03]*)\x03', '', text)
         # Consolidate multiple whitespaces
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
@@ -401,18 +255,6 @@ class Renderer:
         else:
             return ', '.join(resolved[:-1]) + ' or ' + resolved[-1]
 
-    def preprocess(self, topref: Reference) -> None:
-        """
-        Preprocesses the given topref, rendering its content to HTML and storing
-        the result in an HTML attribute, which is a list holding the individual
-        rendered lines.
-        """
-        rd = HTMLRenderData.get(topref)
-        if topref.type in (RefType.CLASS, RefType.MODULE):
-            topref.userdata['empty'] = not self._render_classmod(topref, rd.html.append)
-        elif topref.type == RefType.MANUAL:
-            self._render_manual(topref, rd.html.append)
-
     def _render_user_links(self, root: str, out: Callable[[str], None]) -> None:
         sections = sorted(s for s in self.config.sections() if s.startswith('link'))
         for section in sections:
@@ -432,7 +274,7 @@ class Renderer:
             ))
 
     @contextmanager
-    def _render_html(self, topref: Reference, lines: List[str]) -> Generator[
+    def _render_html(self, topref: TopRef, lines: List[str]) -> Generator[
             Callable[[str], None],
             None,
             None
@@ -443,15 +285,20 @@ class Renderer:
         content area.
         """
         self.ctx.update(ref=topref)
-        sections = self.parser._get_sections(topref)
-        if not sections and topref.type == RefType.MANUAL:
+        if not topref.collections and isinstance(topref, ManualRef):
             log.critical('manual "%s" has no sections (empty doc or possible symbol collision)', topref.name)
             sys.exit(1)
-        title = self.config.get('project', 'title', fallback=self.config.get('project', 'name', fallback='Lua Project'))
-        html_title = '{} - {}'.format(
-            sections[0].display if topref.type == RefType.MANUAL else topref.name,
-            title
-        )
+
+        fallback_title = self.config.get('project', 'name', fallback='Lua Project')
+        project_title = self.config.get('project', 'title', fallback=fallback_title)
+        if isinstance(topref, ManualRef):
+            # For manual pages, the page title is the first section heading
+            page_title = topref.collections[0].heading
+        else:
+            # For everything else, we use the ref's display name
+            page_title = topref.display
+
+        html_title = '{} - {}'.format(page_title, project_title)
         # Alias to improve readability
         out = lines.append
         root = self._get_root_path()
@@ -471,29 +318,35 @@ class Renderer:
             title=html_title,
             head='\n'.join(head),
             root=root,
-            bodyclass='{}-{}'.format(topref.type.value, re.sub(r'\W+', '', topref.name).lower())
+            bodyclass='{}-{}'.format(
+                # First segment of body class is the ref type, but for unknown refs (such
+                # as Search page) fall back to 'other'
+                topref.type or 'other',
+                # Second segment is the stripped form of the ref name.
+                re.sub(r'\W+', '', topref.name).lower()
+            )
         ))
 
         toprefs = self.parser.topsyms.values()
-        manual = [ref for ref in toprefs if ref.type == RefType.MANUAL]
-        classes = sorted([ref for ref in toprefs if ref.type == RefType.CLASS], key=lambda ref: ref.name)
-        modules = [ref for ref in toprefs if ref.type == RefType.MODULE]
+        manual = [ref for ref in toprefs if isinstance(ref, ManualRef)]
+        classes = sorted([ref for ref in toprefs if isinstance(ref, ClassRef)], key=lambda ref: ref.name)
+        modules = [ref for ref in toprefs if isinstance(ref, ModuleRef)]
         # Determine prev/next buttons relative to current topref.
         found = prevref = nextref = None
         for ref in manual + classes + modules:
             if found:
                 nextref = ref
                 break
-            elif ref.topsym == topref.name or topref.type == RefType.SEARCH:
+            elif ref.topsym == topref.name or topref.symbol == '--search':
                 found = True
             else:
                 prevref = ref
 
-        hometext = self.config.get('project', 'name', fallback=title)
+        hometext = self.config.get('project', 'name', fallback=project_title)
         out('<div class="topbar">')
         out('<div class="group one">')
         if self.config.has_section('manual') and self.config.get('manual', 'index', fallback=False):
-            path = '' if (topref.type == RefType.MANUAL and topref.name == 'index') else '../'
+            path = '' if (isinstance(topref, ManualRef) and topref.name == 'index') else '../'
             out('<div class="button description"><a href="{}index.html"><span>{}</span></a></div>'.format(path, hometext))
         else:
             out('<div class="description"><span>{}</span></div>'.format(hometext))
@@ -526,32 +379,26 @@ class Renderer:
         out('<input class="search" name="q" type="search" placeholder="Search" />')
         out('</form>')
 
-        if sections:
+        if topref.collections:
             out('<div class="sections">')
             out('<div class="heading">Contents</div>')
             out('<ul>')
-            for section in sections:
-                rd = HTMLRenderData.get(section)
-                self.ctx.update(ref=section)
-                _, _, md = self._content_to_markdown(section.content)
-                if section.type in (RefType.CLASS, RefType.MODULE):
-                    rd.heading = '{} <code>{}</code>'.format(section.type.value.title(), section.symbol)
-                    rd.body = md
-                elif section.topref.type == RefType.MANUAL:
-                    rd.heading = section.display
-                    rd.body = md
+            for colref in topref.collections:
+                if isinstance(colref, ManualRef):
+                    continue
+                if isinstance(colref, (ClassRef, ModuleRef)):
+                    heading = '{} <code>{}</code>'.format(colref.type.title(), colref.heading)
                 else:
-                    heading, rd.body = self._get_first_sentence(md)
-                    rd.heading = self._markdown_to_html(heading)
-                out('<li><a href="#{}">{}</a></li>'.format(section.symbol, rd.heading))
+                    heading = colref.heading
+                out('<li><a href="#{}">{}</a></li>'.format(colref.symbol, heading))
             out('</ul>')
             out('</div>')
 
-        if self.parser.parsed[RefType.MANUAL]:
+        if self.parser.parsed[ManualRef]:
             out('<div class="manual">')
             out('<div class="heading">Manual</div>')
             out('<ul>')
-            for ref in self.parser.parsed[RefType.MANUAL]:
+            for ref in self.parser.parsed[ManualRef]:
                 if ref.scope:
                     # This is a section heading, or it's the index document, so don't include
                     # it in the list of manual pages.
@@ -593,17 +440,17 @@ class Renderer:
             out('</div>')
             out(self._templates['foot'].format(root=root, version=self._assets_version))
 
-    def render(self, topref: Reference) -> str:
+    def render(self, topref: TopRef) -> str:
         """
-        Renders a preprocessed topref to HTML, returning a string containing the
-        rendered HTML.
-
-        preprocess() must have been called on the topref first.
+        Renders a prerendered Page to HTML, returning a string containing the rendered
+        HTML.
         """
-        rd = HTMLRenderData.get(topref)
         lines = []
         with self._render_html(topref, lines) as out:
-            out('\n'.join(rd.html))
+            if isinstance(topref, (ClassRef, ModuleRef)):
+                self._render_classmod(topref, out)
+            elif isinstance(topref, ManualRef):
+                self._render_manual(topref, out)
         return '\n'.join(lines)
 
     def _permalink(self, id: str) -> str:
@@ -613,106 +460,89 @@ class Renderer:
         """
         return '<a class="permalink" href="#{}" title="Permalink to this definition">¶</a>'.format(id)
 
-    def _render_manual(self, manualref: Reference, out: Callable[[str], None]) -> None:
+    def _render_manual(self, topref: ManualRef, out: Callable[[str], None]) -> None:
         """
         Renders the given manual top-level Reference as HTML, calling the given out() function
         for each line of HTML.
         """
         out('<div class="manual">')
-        if manualref.content:
-            # Include any preamble before the first heading.
-            _, _, md = self._content_to_markdown(manualref.content, strip_comments=False)
-            out(self._markdown_to_html(md))
-        for section in self.parser._get_sections(manualref):
-            self.ctx.update(ref=section)
-            level: int = section.flags['level']
-            out('<h{} id="{}">{}'.format(level, section.symbol, section.display))
-            out(self._permalink(section.symbol))
-            out('</h{}>'.format(level))
-            _, _, md = self._content_to_markdown(section.content, strip_comments=False)
-            out(self._markdown_to_html(md))
+        if topref.md:
+            # Preamble
+            out(self._markdown_to_html(topref.md))
+        for secref in topref.collections:
+            # Manual pages only contain SectionRefs
+            assert(isinstance(secref, SectionRef))
+            out('<h{} id="{}">{}'.format(secref.level, secref.symbol, secref.heading))
+            out(self._permalink(secref.symbol))
+            out('</h{}>'.format(secref.level))
+            out(self._markdown_to_html(secref.body))
         out('</div>')
 
-    def _render_classmod(self, topref: Reference, out: Callable[[str], None]):
+    def _render_classmod(self, topref: Union[ClassRef, ModuleRef], out: Callable[[str], None]) -> None:
         """
         Renders the given class or module top-level Reference as HTML, calling the given out()
         function for each line of HTML.
         """
-        has_content = False
-        for section in self.parser._get_sections(topref):
-            self.ctx.update(ref=section)
-            rd = HTMLRenderData.get(section)
+        assert(isinstance(topref, (ClassRef, ModuleRef)))
+        for colref in topref.collections:
+            self.ctx.update(ref=colref)
 
-            # Parse out section heading and body.
-            _, _, md = self._content_to_markdown(section.content)
-            if section.type in (RefType.CLASS, RefType.MODULE):
-                rd.heading = '{} <code>{}</code>'.format(section.type.value.title(), section.symbol)
-                rd.body = md
-            elif section.topref.type == RefType.MANUAL:
-                rd.heading = section.display
-                rd.body = md
+            # First collection within a class or module is the class/module itself.
+            if isinstance(colref, TopRef):
+                heading = '{} <code>{}</code>'.format(colref.type.title(), colref.heading)
             else:
-                heading, rd.body = self._get_first_sentence(md)
-                # Fall back to section name if there is no content for the heading.
-                rd.heading = self._markdown_to_html(heading) if heading.strip() else section.name
+                heading = self._markdown_to_html(colref.heading)
 
             out('<div class="section">')
             out('<h2 class="{}" id="{}">{}'.format(
-                section.type.value,
-                section.symbol,
+                colref.type,
+                colref.symbol,
                 # Heading converted from markdown contains paragraph tags, and it
                 # isn't valid HTML for headings to contain block elements.
-                rd.heading.replace('<p>', '').replace('</p>', '')
+                heading.replace('<p>', '').replace('</p>', '')
             ))
-            out(self._permalink(section.symbol))
+            out(self._permalink(colref.symbol))
             out('</h2>')
             out('<div class="inner">')
-            h = section.hierarchy
-            if len(h) > 1:
-                out('<div class="hierarchy">')
-                out('<div class="heading">Class Hierarchy</div>')
-                out('<ul>')
-                for n, cls in enumerate(h):
-                    if cls == section:
-                        html = cls.name
-                        self_class = ' self'
-                    else:
-                        html = self._types_to_html([cls.name])
-                        self_class = ''
-                    prefix = (('&nbsp;'*(n-1)*6) + '&nbsp;└─ ') if n > 0 else ''
-                    out('<li class="class{}">{}<span>{}</span></li>'.format(self_class, prefix, html))
-                out('</ul>')
-                out('</div>')
+            if isinstance(colref, ClassRef):
+                h = colref.hierarchy
+                if len(h) > 1:
+                    out('<div class="hierarchy">')
+                    out('<div class="heading">Class Hierarchy</div>')
+                    out('<ul>')
+                    for n, cls in enumerate(h):
+                        if cls == colref:
+                            html = cls.name
+                            self_class = ' self'
+                        else:
+                            html = self._types_to_html([cls.name])
+                            self_class = ''
+                        prefix = (('&nbsp;'*(n-1)*6) + '&nbsp;└─ ') if n > 0 else ''
+                        out('<li class="class{}">{}<span>{}</span></li>'.format(self_class, prefix, html))
+                    out('</ul>')
+                    out('</div>')
 
-            # section.heading and section.body is set by _render_html()
-            if rd.body:
-                out(self._markdown_to_html(rd.body))
-
-            assert(section.section)
-            functions = list(self.parser._get_elements_in_section(RefType.FUNCTION, section.section, section.topsym))
-            fields = list(self.parser._get_elements_in_section(RefType.FIELD, section.section, section.topsym))
-            has_content = has_content or rd.body or functions or fields
-            # functions.sort(key=lambda ref: ref.name)
-            # fields.sort(key=lambda ref: ref.name)
+            if colref.body:
+                out(self._markdown_to_html(colref.body))
 
             fields_title = 'Fields'
             fields_meta_columns = 0
             fields_has_type_column = False
-            for ref in fields:
+            for ref in colref.fields:
                 n = 0
-                if ref.scope and ref.scope.type == RefType.CLASS:
+                if isinstance(ref.scope, ClassRef):
                     fields_title = 'Attributes'
-                if ref.flags.get('meta'):
+                if ref.meta:
                     n += 1
-                if ref.flags.get('type'):
+                if ref.types:
                     fields_has_type_column = True
                 fields_meta_columns = max(n, fields_meta_columns)
 
             functions_title = 'Functions'
             functions_meta_columns = 0
-            for ref in functions:
+            for ref in colref.functions:
                 n = 0
-                if ref.scope and ref.symbol and ref.scope.type == RefType.CLASS and ':' in ref.symbol:
+                if isinstance(ref.scope, ClassRef) and ':' in ref.symbol:
                     functions_title = 'Methods'
                 if ref.flags.get('meta'):
                     n += 1
@@ -721,72 +551,67 @@ class Renderer:
             #
             # Output synopsis for this section.
             #
-            compact: list[str] = section.flags.get('compact', [])
-            fullnames: bool = section.flags.get('fullnames', False)
-            fields_compact = 'fields' in compact
-            functions_compact = 'functions' in compact
-            if functions or fields:
+            fields_compact = 'fields' in colref.compact
+            functions_compact = 'functions' in colref.compact
+            if colref.functions or colref.fields:
                 out('<div class="synopsis">')
                 if not fields_compact:
                     out('<h3>Synopsis</h3>')
-                if fields:
-                    if functions or not fields_compact:
+                if colref.fields:
+                    if colref.functions or not fields_compact:
                         out('<div class="heading">{}</div>'.format(fields_title))
                     out('<table class="fields {}">'.format('compact' if fields_compact else ''))
-                    for ref in fields:
-                        refrd = HTMLRenderData.get(ref)
+                    for ref in colref.fields:
                         out('<tr>')
-                        display = ref.name if fullnames else ref.symbol
                         if not fields_compact:
-                            out('<td class="name"><a href="#{}"><var>{}</var></a></td>'.format(ref.name, display))
+                            out('<td class="name"><a href="#{}"><var>{}</var></a></td>'.format(ref.name, ref.title))
                         else:
                             link = self._permalink(ref.name)
-                            out('<td class="name"><var id="{}">{}</var>{}</td>'.format(ref.name, display, link))
+                            out('<td class="name"><var id="{}">{}</var>{}</td>'.format(ref.name, ref.title, link))
                         nmeta = fields_meta_columns
-                        if ref.flags.get('type'):
-                            types = self._types_to_html(ref.flags['type'])
+                        if ref.types:
+                            types = self._types_to_html(ref.types)
                             out('<td class="meta types">{}</td>'.format(types))
                         elif fields_has_type_column:
                             out('<td class="meta"></td>')
-                        if ref.flags.get('meta'):
-                            html = self._markdown_to_html(ref.flags['meta'])
+                        if ref.meta:
+                            html = self._markdown_to_html(ref.meta)
                             out('<td class="meta">{}</td>'.format(html))
                             nmeta -= 1
                         while nmeta > 0:
                             out('<td class="meta"></td>')
                             nmeta -= 1
-                        _, _, refrd.md = self._content_to_markdown(ref.content)
-                        md = self._get_first_sentence(refrd.md)[0] if not fields_compact else refrd.md
+
+                        md = get_first_sentence(ref.md)[0] if not fields_compact else ref.md
                         if md:
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
                     out('</table>')
 
-                if functions:
-                    if fields or not functions_compact:
+                if colref.functions:
+                    if colref.fields or not functions_compact:
                         out('<div class="heading">{}</div>'.format(functions_title))
                     out('<table class="functions {}">'.format('compact' if functions_compact else ''))
-                    for ref in functions:
-                        refrd = HTMLRenderData.get(ref)
+                    for ref in colref.functions:
                         out('<tr>')
                         # For compact view, remove topsym prefix from symbol
-                        display = ref.display_compact if ref.scope and ref.scope.type == RefType.CLASS else ref.display
+                        display = ref.display_compact if isinstance(ref.scope, ClassRef) else ref.title
                         if not functions_compact:
                             out('<td class="name"><a href="#{}"><var>{}</var></a>()</td>'.format(ref.name, display))
                         else:
                             link = self._permalink(ref.name)
-                            args = ', '.join('<em>{}</em>'.format(arg) for arg in ref.extra)
+                            params = ', '.join('<em>{}</em>'.format(param) for param, _, _ in ref.params)
                             html = '<td class="name"><var id="{}">{}</var>({}){}</td>'
-                            out(html.format(ref.name, display, args, link))
+                            out(html.format(ref.name, display, params, link))
                         meta = functions_meta_columns
-                        if ref.flags.get('meta'):
-                            out('<td class="meta">{}</td>'.format(ref.flags['meta']))
+                        if ref.meta:
+                            out('<td class="meta">{}</td>'.format(ref.meta))
                             meta -= 1
                         while meta > 0:
                             out('<td class="meta"></td>')
                             meta -= 1
-                        refrd.params, refrd.returns, refrd.md = self._content_to_markdown(ref.content)
-                        md = self._get_first_sentence(refrd.md)[0] if not functions_compact else refrd.md
+                    
+                        md = get_first_sentence(ref.md)[0] if not functions_compact else ref.md
                         out('<td class="doc">{}</td>'.format(self._markdown_to_html(md)))
                         out('</tr>')
                     out('</table>')
@@ -795,66 +620,59 @@ class Renderer:
             #
             # Output fields for this section
             #
-            if fields and not fields_compact:
-                if functions:
+            if colref.fields and not fields_compact:
+                if colref.functions:
                     out('<h3 class="fields">{}</h3>'.format(fields_title))
                 out('<dl class="fields">')
-                for ref in fields:
-                    refrd = HTMLRenderData.get(ref)
+                for ref in colref.fields:
                     out('<dt id="{}">'.format(ref.name))
                     out('<span class="icon"></span><var>{}</var>'.format(ref.display))
-                    if ref.flags.get('type'):
-                        types = self._types_to_html(ref.flags['type'])
+                    if ref.types:
+                        types = self._types_to_html(ref.types)
                         out('<span class="tag type">{}</span>'.format(types))
-                    if ref.flags.get('meta'):
-                        out('<span class="tag meta">{}</span>'.format(ref.flags['meta']))
+                    if ref.meta:
+                        out('<span class="tag meta">{}</span>'.format(ref.meta))
                     out(self._permalink(ref.name))
                     out('</dt>')
                     out('<dd>')
-                    out(self._markdown_to_html(refrd.md))
+                    out(self._markdown_to_html(ref.md))
                     out('</dd>')
                 out('</dl>')
 
             #
             # Output functions for this section
             #
-            if functions and not functions_compact:
-                if fields:
+            if colref.functions and not functions_compact:
+                if colref.fields:
                     out('<h3 class="functions">{}</h3>'.format(functions_title))
                 out('<dl class="functions">')
-                for ref in functions:
-                    refrd = HTMLRenderData.get(ref)
-                    args = ', '.join('<em>{}</em>'.format(arg) for arg in ref.extra)
+                for ref in colref.functions:
+                    params = ', '.join('<em>{}</em>'.format(param) for param, _, _ in ref.params)
                     out('<dt id="{}">'.format(ref.name))
-                    out('<span class="icon"></span><var>{}</var>({})'.format(ref.display, args))
-                    if ref.flags.get('meta'):
-                        out('<span class="tag meta">{}</span>'.format(ref.flags['meta']))
+                    out('<span class="icon"></span><var>{}</var>({})'.format(ref.display, params))
+                    if ref.meta:
+                        out('<span class="tag meta">{}</span>'.format(ref.meta))
                     out(self._permalink(ref.name))
                     out('</dt>')
                     out('<dd>')
-                    out(self._markdown_to_html(refrd.md))
-                    if refrd.params:
+                    out(self._markdown_to_html(ref.md))
+                    # Only show the praameters table if there's at least one documented parameter.
+                    if any(types or doc for _, types, doc in ref.params):
                         out('<div class="heading">Parameters</div>')
                         out('<table class="parameters">')
-                        for arg in ref.extra:
-                            try:
-                                types, doc = refrd.params[arg]
-                            except KeyError:
-                                log.warning('%s() missing @tparam for "%s" parameter', ref.name, arg)
-                                types = []
-                                doc = ''
+                        for (param, types, doc) in ref.params:
                             out('<tr>')
-                            out('<td class="name"><var>{}</var></td>'.format(arg))
+                            out('<td class="name"><var>{}</var></td>'.format(param))
                             out('<td class="types">({})</td>'.format(self._types_to_html(types)))
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(doc)))
                             out('</tr>')
                         out('</table>')
-                    if refrd.returns:
+                    if ref.returns:
                         out('<div class="heading">Return Values</div>')
                         out('<table class="returns">')
-                        for n, (types, doc) in enumerate(refrd.returns, 1):
+                        for n, (types, doc) in enumerate(ref.returns, 1):
                             out('<tr>')
-                            if len(refrd.returns) > 1:
+                            if len(ref.returns) > 1:
                                 out('<td class="name">{}.</td>'.format(n))
                             out('<td class="types">({})</td>'.format(self._types_to_html(types)))
                             out('<td class="doc">{}</td>'.format(self._markdown_to_html(doc)))
@@ -866,7 +684,6 @@ class Renderer:
             out('</div>')
             # Close outer section
             out('</div>')
-        return has_content
 
     def render_search_index(self) -> str:
         log.info('generating search index')
@@ -874,27 +691,27 @@ class Renderer:
         self.ctx.update(ref=topref)
         lines = []
         out = lines.append
-        def add(ref: Reference, typ: RefType):
+        def add(ref: Reference, typ: Type[Reference]):
             href = self._get_ref_href(ref)
-            _, _, md = self._content_to_markdown(ref.content)
+            _, _, md = self.parser.content_to_markdown(ref.content)
             text = self._markdown_to_text(md)
             title = ref.display
-            if typ == RefType.SECTION and ref.topref.type != RefType.MANUAL:
+            if typ == SectionRef and not isinstance(ref.topref, ManualRef):
                 # Non-manual sections typically use the first sentence as the section
                 # title.  This heuristic uses the first sentence only if it's less than 80
                 # characters, otherwise falls back to the section title.
-                first, remaining = self._get_first_sentence(text)
+                first, remaining = get_first_sentence(text)
                 if len(first) < 80:
                     title = first
                     text = remaining
             text = text.replace('"', '\\"').replace('\n', ' ')
             title = title.replace('"', '\\"').replace('\n', ' ')
-            if typ == RefType.MODULE:
+            if typ == ModuleRef:
                 title = title.split('.', 1)[-1]
-            out('{{path:"{}", type:"{}", title:"{}", text:"{}"}},'.format(href, typ.value, title, text))
+            out('{{path:"{}", type:"{}", title:"{}", text:"{}"}},'.format(href, typ.type, title, text))
 
         out('var docs = [')
-        for typ in RefType.CLASS, RefType.MODULE, RefType.FIELD, RefType.FUNCTION, RefType.SECTION:
+        for typ in ClassRef, ModuleRef, FieldRef, FunctionRef, SectionRef:
             for ref in self.parser.parsed[typ]:
                 add(ref, typ)
         out('];')
@@ -903,12 +720,23 @@ class Renderer:
     def render_search_page(self) -> str:
         root = self._get_root_path()
         topref = self.parser.refs['--search']
-        rd = HTMLRenderData.get(topref)
-        rd.html = [self._templates['search'].format(root=root, version=self._assets_version)]
-        return self.render(topref)
+        assert(isinstance(topref, TopRef))
+        lines = []
+        with self._render_html(topref, lines) as out:
+            out(self._templates['search'].format(root=root, version=self._assets_version))
+        return '\n'.join(lines)
 
     def render_landing_page(self) -> str:
+        """
+        Returns rendered HTML for a landing page (index.html) which is used when there is
+        no explicit manual page called "index" and which just returns a skeleton page with
+        no body.
+        """
         # A bit lazy to reuse the search topref here, but we just need a reference
         # from the same directory so the link paths are correct.
         topref = self.parser.refs['--search']
-        return self.render(topref)
+        assert(isinstance(topref, TopRef))
+        lines = []
+        with self._render_html(topref, lines):
+            pass
+        return '\n'.join(lines)

@@ -1,4 +1,4 @@
-# Copyright 2021 Jason Tackaberry
+# Copyright 2021-2023 Jason Tackaberry
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,8 @@ from .log import log
 from .assets import assets
 from .parse import *
 from .render import *
-from .reference import RefType
+from .prerender import Prerenderer
+from .reference import ManualRef
 
 try:
     # version.py is generated at build time, so we are running from the proper
@@ -244,7 +245,11 @@ def main():
         for scope, path in pages:
             parser.parse_manual(scope, open(path, encoding=encoding))
     except Exception as e:
-        log.exception('unhandled error parsing around %s:%s: %s', parser.ctx.file, parser.ctx.line, e)
+        msg = f'error parsing around {parser.ctx.file}:{parser.ctx.line}: {e}'
+        if isinstance(e, ParseError):
+            log.error(msg)
+        else:
+            log.exception(f'unhandled {msg}')
         sys.exit(1)
 
     outdir = config.get('project', 'outdir', fallback=None)
@@ -258,22 +263,21 @@ def main():
 
     renderer = Renderer(parser)
     try:
-        log.info('preprocessing %d pages', len(parser.topsyms))
-        for (_, name), ref in parser.topsyms.items():
-            renderer.preprocess(ref)
+        log.info('prerendering %d pages', len(parser.topsyms))
+        toprefs = Prerenderer(parser).process()
 
-        for (_, name), ref in parser.topsyms.items():
+        for ref in toprefs:
             if ref.userdata.get('empty') and ref.implicit:
                 # Reference has no content and it was also implicitly generated, so we don't render it.
-                log.info('not rendering empty %s %s', ref.type.value, ref.name)
+                log.info('not rendering empty %s %s', ref.type, ref.name)
                 continue
-            if ref.type == RefType.MANUAL and ref.name == 'index':
+            if isinstance(ref, ManualRef) and ref.name == 'index':
                 typedir = outdir
             else:
-                typedir = os.path.join(outdir, ref.type.value)
+                typedir = os.path.join(outdir, ref.type)
             os.makedirs(typedir, exist_ok=True)
-            outfile = os.path.join(typedir, name + '.html')
-            log.info('rendering %s %s -> %s', ref.type.value, name, outfile)
+            outfile = os.path.join(typedir, ref.name + '.html')
+            log.info('rendering %s %s -> %s', ref.type, ref.name, outfile)
             html = renderer.render(ref)
             with open(outfile, 'w', encoding='utf8') as f:
                 f.write(html)
@@ -286,7 +290,7 @@ def main():
         with open(os.path.join(outdir, 'search.html'), 'w', encoding='utf8') as f:
             f.write(html)
 
-        if not parser.get_reference(RefType.MANUAL, 'index'):
+        if not parser.get_reference(ManualRef, 'index'):
             # The user hasn't specified an index manual page, so we generate a blank
             # landing page that at least presents the sidebar with available links.
             html = renderer.render_landing_page()

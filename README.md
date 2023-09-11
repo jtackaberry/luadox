@@ -9,7 +9,7 @@ LuaDox is:
    (which is perhaps more an indictment of me than of LDoc, as LuaDox is probably also accidentally
    opinionated about structure)
  * an attempt to make nice looking and searchable documentation generated from code
- * written in Python, strangely enough.  Python 3.6 or later is required.
+ * written in Python, strangely enough.  Python 3.8 or later is required.
  * *not* strictly compatible with LuaDoc or LDoc tags and not a drop-in replacement, although obviously
    heavily influenced by them
 
