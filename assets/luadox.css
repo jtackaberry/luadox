@@ -449,12 +449,12 @@ div.warning {
     background-color: #ffe9e9;
 }
 
-div.warning div.title {
+div.warning > div.title {
     background-color: #b04040;
     border-bottom: 1px solid #900000;
 }
 
-div.note div.title {
+div.note > div.title {
     background-color: #70A070;
     border-bottom: 1px solid #609060;
 }
