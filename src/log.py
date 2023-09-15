@@ -15,4 +15,4 @@
 import logging
 
 log = logging.getLogger('luadox')
-logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s [%(levelname)s] %(message)s', level=logging.DEBUG)
