@@ -265,6 +265,10 @@ var, a code {
     color: #444;
 }
 
+div.see {
+    padding-top: 0.5em;
+}
+
 div.see::before {
     content: "👉 ";
 }
