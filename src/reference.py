@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, fields
 from typing import TypeVar, Optional, Union, List, Tuple, Dict, Any
 
 from .log import log
+from .utils import Content
 
 # Used for generics taking Reference types
 RefT = TypeVar('RefT', bound='Reference')
@@ -97,7 +98,9 @@ class Reference:
     # A list of lines containing the documented content for this collection.  Each element
     # is a 2-tuple in the form (line number, text) where line number is the specific line
     # in self.file where the comment appears, and text is in markdown format.
-    content: List[Tuple[int, str]] = field(default_factory=list)
+    raw_content: List[Tuple[int, str]] = field(default_factory=list)
+    # The processed (from raw) content which is set during the prerender stage
+    content: Content = field(default_factory=Content)
     # A map of modifiers that apply to this Reference that affect how it is rendered,
     # mostly from @tags.  These are accumulated in the flags dict until all parsing
     # is done and then the parser process stage will convert these to proper fields in the
@@ -172,9 +175,18 @@ class Reference:
         return self._name
 
     @property
+    def id(self) -> str:
+        """
+        A globally unique identifier of the Reference.
+        """
+        return f'{self.topref.type}#{self.topsym}#{self.name}'
+
+    @property
     def topsym(self) -> str:
         """
         Returns the symbol name of our top-level reference.
+
+        This does *not* honor @within.
         """
         if not self._topsym:
             self._set_topsym()
@@ -187,6 +199,8 @@ class Reference:
         Returns the Reference object for the top-level reference this ref
         belongs to.  If we're already a top-level Ref (e.g. class or module)
         then self is returned.
+
+        This does *not* honor @within.
         """
         # If there are no scopes, we *are* the topref
         return self if not self.scopes else self.parser_refs[self.topsym]
@@ -280,8 +294,6 @@ class FieldRef(Reference):
 
     # User-defined meta value (parsed from @meta via flags)
     meta: Optional[str] = None
-    # Markdown content of the field
-    md: str = ''
     # Renderable display name that takes tags such as @fullnames into account
     title: str = ''
     # Allowed types for this field, which can be empty if no @type tag
@@ -343,9 +355,9 @@ class FunctionRef(FieldRef):
     type: str = 'function'
 
     # List of (name, types, docstring)
-    params: List[Tuple[str, List[str], str]] = field(default_factory=list)
-    # List of (types, markdown)j
-    returns: List[Tuple[List[str], str]] = field(default_factory=list)
+    params: List[Tuple[str, List[str], Content]] = field(default_factory=list)
+    # List of (types, docstring)j
+    returns: List[Tuple[List[str], Content]] = field(default_factory=list)
 
 
 @dataclass
@@ -354,7 +366,6 @@ class CollectionRef(Reference):
     A collection can fields and functions, 
     """
     heading: str = ''
-    body: str = ''
     # List of 'functions' and/or 'fields' to indicate which should be rendered in compact
     # form
     compact: List[str] = field(default_factory=list)
@@ -366,8 +377,6 @@ class TopRef(CollectionRef):
     """
     Represents a top-level reference such as class or module.
     """
-    # Preamble before any sections
-    md: str = ''
     # Ordered list of collections within this topref, which respects @within and @reorder
     collections: List[CollectionRef] = field(default_factory=list)
 

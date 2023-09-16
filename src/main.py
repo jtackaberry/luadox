@@ -31,11 +31,9 @@ from configparser import ConfigParser
 from typing import Generator, Union, Dict, Tuple, Set
 
 from .log import log
-from .assets import assets
 from .parse import *
 from .render import *
 from .prerender import Prerenderer
-from .reference import ManualRef
 
 try:
     # version.py is generated at build time, so we are running from the proper
@@ -50,21 +48,6 @@ except ImportError:
 # modulie name can also be None if the user didn't provide any explicit module name, in
 # which case the module name will be inferred.
 BasePathsType = Dict[Union[Tuple[str, ...], None], Set[str]]
-
-# Files from the assets directory to be copied
-ASSETS = [
-    'luadox.css',
-    'prism.css',
-    'prism.js',
-    'js-search.min.js',
-    'search.js',
-    'img/i-left.svg',
-    'img/i-right.svg',
-    'img/i-download.svg',
-    'img/i-github.svg',
-    'img/i-gitlab.svg',
-    'img/i-bitbucket.svg',
-]
 
 class FullHelpParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
@@ -265,43 +248,9 @@ def main():
     try:
         log.info('prerendering %d pages', len(parser.topsyms))
         toprefs = Prerenderer(parser).process()
-
-        for ref in toprefs:
-            if ref.userdata.get('empty') and ref.implicit:
-                # Reference has no content and it was also implicitly generated, so we don't render it.
-                log.info('not rendering empty %s %s', ref.type, ref.name)
-                continue
-            if isinstance(ref, ManualRef) and ref.name == 'index':
-                typedir = outdir
-            else:
-                typedir = os.path.join(outdir, ref.type)
-            os.makedirs(typedir, exist_ok=True)
-            outfile = os.path.join(typedir, ref.name + '.html')
-            log.info('rendering %s %s -> %s', ref.type, ref.name, outfile)
-            html = renderer.render(ref)
-            with open(outfile, 'w', encoding='utf8') as f:
-                f.write(html)
-
-        js = renderer.render_search_index()
-        with open(os.path.join(outdir, 'index.js'), 'w', encoding='utf8') as f:
-            f.write(js)
-
-        html = renderer.render_search_page()
-        with open(os.path.join(outdir, 'search.html'), 'w', encoding='utf8') as f:
-            f.write(html)
-
-        if not parser.get_reference(ManualRef, 'index'):
-            # The user hasn't specified an index manual page, so we generate a blank
-            # landing page that at least presents the sidebar with available links.
-            html = renderer.render_landing_page()
-            with open(os.path.join(outdir, 'index.html'), 'w', encoding='utf8') as f:
-                f.write(html)
-
-        for name in ASSETS:
-            outfile = os.path.join(outdir, name)
-            if os.path.dirname(name):
-                os.makedirs(os.path.dirname(outfile), exist_ok=True)
-            with open(outfile, 'wb') as f:
-                f.write(assets.get(name))
+        renderer.render(toprefs, outdir)
     except Exception as e:
         log.exception('unhandled error rendering around %s:%s: %s', parser.ctx.file, parser.ctx.line, e)
+        sys.exit(1)
+
+    log.info('done')

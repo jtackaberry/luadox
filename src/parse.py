@@ -18,7 +18,7 @@ import os
 import re
 from collections import OrderedDict
 from configparser import ConfigParser
-from typing import IO, Optional, Union, Tuple, List, Dict, Type
+from typing import IO, Optional, Union, Tuple, List, Dict, Type, Match
 
 from .log import log
 from .reference import *
@@ -63,6 +63,14 @@ class Context:
             self.line = line
 
 
+class ReferenceDict(dict):
+    """
+    Dictionary keyed by ref type whose value is a list of references of that same type.
+
+    This is a simple pattern to improve type clarity.
+    """
+    def __getitem__(self, k: Type[RefT]) -> List[RefT]:
+        return super().__getitem__(k)
 
 class ParseError(ValueError):
     pass
@@ -79,7 +87,7 @@ class Parser:
     def __init__(self, config: ConfigParser) -> None:
         self.config = config
         # A complete list of all Reference objects keyed by Reference subclass type
-        self.parsed: dict[Type[Reference], list[Reference]] = {
+        self.parsed = ReferenceDict({
             ModuleRef: [],
             ClassRef: [],
             FunctionRef: [],
@@ -87,7 +95,7 @@ class Parser:
             SectionRef: [],
             TableRef: [],
             ManualRef: [],
-        }
+        })
         # A dict of only top-level References ("toprefs"), keyed by the fully qualified
         # name of the reference.
         #
@@ -109,6 +117,8 @@ class Parser:
         #
         # name -> Reference
         self.refs: dict[str, Reference] = {}
+        # Maps refs by their ids, rather than names
+        self.refs_by_id: dict[str, Reference] = {}
 
         # This holds the context of the current file and reference being processed
         self.ctx = Context()
@@ -148,10 +158,10 @@ class Parser:
         found.
         """
         # Form: function foo(bar, baz)
-        m = re.search(r'''\bfunction *([^\s(]+) *\(([^)]*)(\))?''', line)
+        m = recache(r'''\bfunction *([^\s(]+) *\(([^)]*)(\))?''').search(line)
         if not m:
             # Look for form: foo = function(bar, baz)
-            m = re.search(r'''(\S+) *= *function *\(([^)]*)(\))?''', line)
+            m = recache(r'''(\S+) *= *function *\(([^)]*)(\))?''').search(line)
         if not m:
             # Not a function (or not one we could recognize at least)
             return None, None
@@ -163,7 +173,7 @@ class Parser:
             if nextline is None:
                 log.error('%s:%s: function definition is truncated', self.ctx.file, n)
                 return None, None
-            m = re.search(r'''([^)]*)(\))?''', nextline)
+            m = recache(r'''([^)]*)(\))?''').search(nextline)
             if m:
                 argstr, terminated = m.groups()
                 arguments.extend([arg.strip() for arg in argstr.replace(' ', '').split(',') if arg.strip()])
@@ -179,10 +189,10 @@ class Parser:
         but the second return value is always None.
         """
         # Fields in the form [foo] = bar
-        m = re.search(r'''\[([^]]+)\] *=''', line)
+        m = recache(r'''\[([^]]+)\] *=''').search(line)
         if m:
-            return re.sub(r'''['"]''', '', m.group(1)), None
-        m = re.search(r'''\b([\S\.]+) *=''', line)
+            return recache(r'''['"]''').sub('', m.group(1)), None
+        m = recache(r'''\b([\S\.]+) *=''').search(line)
         if m:
             return m.group(1), None
         else:
@@ -267,6 +277,7 @@ class Parser:
                           ref.file, ref.line, ref.type, ref.name, conflict.type, conflict.file, conflict.line)
         else:
             self.refs[ref.name] = ref
+            self.refs_by_id[ref.id] = ref
 
     def _check_disconnected_reference(self, ref: Union[Reference, None]) -> bool:
         """
@@ -278,7 +289,7 @@ class Parser:
                 return True
             # Potentially disconnected comment stanza here, but let's first check to see if there's
             # any text in the comments, otherwise a blank --- would warn somewhat pointlessly.
-            content = ''.join(line.lstrip('-').strip() for (_, line) in ref.content)
+            content = ''.join(line.lstrip('-').strip() for (_, line) in ref.raw_content)
             if content:
                 log.warning('%s:%s: comment block is not connected with any section, ignoring', ref.file, ref.line)
         return False
@@ -331,8 +342,8 @@ class Parser:
         # Reference to the current collection, defaulting to implicit module ref
         collection = modref
         self.ctx.update(file=path)
-        re_start_comment_block = re.compile(r'^(---[^-]|---+$)')
-        re_require = re.compile(r'''\brequire\b *\(?['"]([^'"]+)['"]''')
+        re_start_comment_block = recache(r'^(---[^-]|---+$)')
+        re_require = recache(r'''\brequire\b *\(?['"]([^'"]+)['"]''')
         while True:
             n, line = self._next_line(strip=False)
             if n is None or line is None:
@@ -396,7 +407,7 @@ class Parser:
                             self.refs, file=path, line=n, scopes=scopes[:],
                             symbol=args[0], collection=collection
                         )
-                        field.content.append((n, ' '.join(args[1:])))
+                        field.raw_content.append((n, ' '.join(args[1:])))
                         self._add_reference(field, modref)
                     elif tag == 'alias':
                         if not args:
@@ -430,7 +441,7 @@ class Parser:
                             raise ParseError(f'@{tag} is missing argment')
                         # Nothing special is otherwise needed here.
                     else:
-                        ref.content.append((n, line))
+                        ref.raw_content.append((n, line))
             else:
                 # This line doesn't start with a comment, but may have one at the end
                 # which we remove here.
@@ -555,23 +566,19 @@ class Parser:
                 # Only h1, h2, and h3 create section references.
                 if level <= 3:
                     if ref == topref:
-                        # TODO: use field
-                        ref.flags['display'] = heading
-                        ref.clear_cache()
+                        ref.heading = heading
 
                     # Symbol is used for URL fragment
-                    symbol = re.sub(r'[^a-zA-Z0-9- ]', '', heading.lower())
-                    symbol = re.sub(r' +', '_', symbol).replace('_-_', '-')
+                    symbol = recache(r'[^a-zA-Z0-9- ]').sub('', heading.lower())
+                    symbol = recache(r' +').sub('_', symbol).replace('_-_', '-')
                     # Headings don't need to be unique, so check for duplicate symbol
                     if symbol in symbols:
                         symbol = symbol + str(symbols[symbol] + 1)
                     symbols[symbol] = symbols.get(symbol, 0) + 1
 
                     ref = SectionRef(self.refs, file=path, line=n, scopes=[topref], symbol=symbol)
-                    # TODO: use field
-                    ref.flags['display'] = heading
+                    ref.heading = heading
                     ref.flags['level'] = level
-                    ref.clear_cache()
 
                     if ref != topref:
                         self._add_reference(ref)
@@ -580,14 +587,19 @@ class Parser:
                     # ref's content just below.
                     continue
 
-            ref.content.append((n, line))
+            ref.raw_content.append((n, line))
+
 
     def get_reference(self, typ: Type[Reference], name: str) -> Union[Reference, None]:
+        """
+        Returns the Reference object for the given type and name.
+        """
         for ref in self.parsed[typ]:
             if ref.name == name:
                 return ref
 
-    def _resolve_ref(self, name: str) -> Union[Reference, None]:
+
+    def resolve_ref(self, name: str) -> Union[Reference, None]:
         """
         Finds the Reference object for the given reference name.
 
@@ -620,10 +632,8 @@ class Parser:
                     ref = self.refs.get(clsref.name + '.' + name)
                     if ref:
                         break
-        if not ref:
-            return
 
-        if ref.within and not ref.userdata.get('within_topsym'):
+        if ref and ref.within and 'within_topsym' not in ref.userdata:
             # Check to see if the @within section is in the same topsym.
             collections = self.collections[ref.topsym]
             if ref.within not in collections:
@@ -643,6 +653,7 @@ class Parser:
                 ref.userdata['within_topsym'] = ref.topsym
 
         return ref
+
 
     def _reorder_refs(self, refs: List[RefT], topref: Optional[Reference]=None) -> List[RefT]:
         """
@@ -729,7 +740,6 @@ class Parser:
 
         elems: list[RefT] = []
         for ref in self.parsed[typ]:
-            assert(isinstance(ref, typ))
             if topsym and topsym != ref.topsym:
                 # We're constraining the refs search to the given topref but this ref
                 # doesn't belong to that topref.
@@ -745,11 +755,63 @@ class Parser:
         return self._reorder_refs(elems)
 
 
+    def render_ref_markdown(self, ref: Reference, text: Optional[str]=None, code=False) -> str:
+        """
+        Returns the Reference as a markdown link, using luadox:<refid> as the link target,
+        which can be further resolved by the downstream renderer.
 
-    def content_to_markdown(self, content: List[Tuple[int, str]], strip_comments=True) -> Tuple[
-            Dict[str, Tuple[List[str], str]],
-            List[Tuple[List[str], str]],
-            str
+        If code is True, then the given text is wrapped in backticks.
+        """
+        tick = '`' if code else ''
+        parens = '()' if isinstance(ref, FunctionRef) and not text else ''
+        return f'[{tick}{text or ref.name}{parens}{tick}](luadox:{ref.id})'
+
+
+    def _render_ref_markdown_re(self, m: Match[str]) -> str:
+        """
+        Regexp callback to handle the @{refname} case.
+        """
+        code: bool = (m.group(1) == '`')
+        ref = self.resolve_ref(m.group(2))
+        if ref:
+            return self.render_ref_markdown(ref, m.group(3), code=code)
+        else:
+            log.warning('%s:~%s: reference "%s" could not be resolved', self.ctx.file, self.ctx.line, m.group(2))
+            return m.group(3) or m.group(2)
+
+
+    def _render_backtick_ref_markdown_re(self, m: Match[str]) -> str:
+        """
+        Regexp callback to handle the `refname` case.
+        """
+        ref = self.resolve_ref(m.group(1))
+        if ref:
+            return self.render_ref_markdown(ref, text=m.group(1), code=True)
+        else:
+            # Couldn't resolve the ref, just return back the original text.
+            return '`{}`'.format(m.group(1))
+
+
+    def refs_to_markdown(self, block: str) -> str:
+        """
+        Replaces `refname` and @{refname} in the given block of text with
+        markdown links.
+        """
+        # return block
+        # self._xxx = getattr(self, '_xxx', 0) + len(block)
+        # log.info('process 2: %s', self._xxx)
+        # Resolve `ref`
+        block = recache(r'(?<!`)`([^` ]+)`', re.S).sub(self._render_backtick_ref_markdown_re, block)
+        # Resolve @{ref} and @{ref|text}.  Do this *after* `ref` in case the ref is in the
+        # form `@{stuff}`.
+        block = recache(r'(`)?@{([^}|]+)(?:\|([^}]*))?}(`)?', re.S).sub(self._render_ref_markdown_re, block)
+        return block
+
+
+    def parse_raw_content(self, lines: List[Tuple[int, str]], strip_comments=True) -> Tuple[
+            Dict[str, Tuple[List[str], Content]],
+            List[Tuple[List[str], Content]],
+            Content
         ]:
         """
         Parses a docstring block into markdown.
@@ -761,97 +823,83 @@ class Parser:
         tags, a list of (types, docstrings) for @treturn tags, and a string holding the
         converted content to markdown.
         """
-        output: list[str] = []
-        params: dict[str, tuple[list[str], str]] = {}
-        returns: list[tuple[list[str], str]] = []
-        if not content:
-            return params, returns, ''
+        params: dict[str, tuple[list[str], Content]] = {}
+        returns: list[tuple[list[str], Content]] = []
+        # These tags take nested content
+        content_tags = {'warning', 'note', 'tparam', 'treturn'}
 
-        # List of (tag, args, indent, lines)
-        tagstack: list[tuple[str, list[str], int, list[str]]] = []
-        supported_tags = 'tparam', 'treturn', 'usage', 'example', 'code', 'see', 'warning', 'note'
-
-        def end_tag():
-            tag, args, indent, lines = tagstack.pop()
-            target = tagstack[-1][3] if tagstack else output
-            if tag in ('usage', 'example'):
-                target.append('##### ' + tag.title())
-            if tag in ('usage', 'example', 'code'):
-                lang = 'lua' if not args else args[0]
-                target.append('```' + lang)
-                # Remove trailing newlines.
-                while lines and not lines[-1].strip():
-                    lines.pop()
-                # Dedent all lines according to the indentation of the
-                # first line.
-                indent = get_indent_level(lines[0])
-                target.extend([l[indent:] for l in lines])
-                target.append('```')
-            elif tag == 'tparam' and len(args) >= 2:
-                types = args[0].split('|')
-                name = args[1]
-                params[name] = types, ' '.join(args[2:] + lines)
-            elif tag == 'treturn':
-                types = args[0].split('|')
-                doc = ' '.join(args[1:] + lines)
-                returns.append((types, doc))
-            elif tag == 'see':
-                refs = ['@{{{}}}'.format(see) for see in args]
-                target.append('\n\x01see{}\x03\n'.format(', '.join(refs)))
-            elif tag == 'warning' or tag == 'note':
-                # Admonition
-                heading = ' '.join(args) if args else tag.title()
-                code = '\n\x01adm{}\x02{}\x02{}\n\x03\n'
-                target.append(code.format(tag, heading, '\n'.join(lines)))
-
-        # FIXME: this (frustratingly uncommented) function doesn't pass the smell test.
-        def end_tags(all, line: Optional[str]=None, indent: Optional[int]=None):
-            if not all:
-                end_tag()
-            else:
-                while tagstack:
-                    end_tag()
-                    if line and tagstack:
-                        last_tag_indent = tagstack[-1][2]
-                        tagstack[-1][3].append(line)
-                        line = None
-            return line
-
-        last_line = content[-1][0]
-        for n, line in content:
+        # We pass _refs_to_markdown() as a postprocessor for the Content (here as well as
+        # below) which will resolve all references when the renderer finally fetches the
+        # markdown content via the Markdown.get() method.
+        #
+        # List of (indent, tag, content)
+        stack: list[tuple[int, str,  Content]] = [(0, '', Content(postprocess=self.refs_to_markdown))]
+        # The number of columns to dedent raw lines before adding to the parsed content.
+        # If None, we set this to the current line's indent level and use that as dedent
+        # until reset back to None.
+        dedent = None
+        # We tack on a sentinel value at the end of the raw lines which forces closure of
+        # all pending tags on the stack.
+        for n, line in lines + [(-1, '')]:
             self.ctx.update(line=n)
             tag, args = self._parse_tag(line, require_comment=strip_comments)
             if strip_comments:
                 line = line.lstrip('-').rstrip()
             indent = get_indent_level(line)
 
-            if tagstack:
-                last_tag_indent = tagstack[-1][2]
-                # Determine threshold at which we will consider the last tag to have
-                # terminated.
-                if tag:
-                    # Any tag at the same level as the last tag (or below) will close
-                    threshold = last_tag_indent
-                else:
-                    threshold = last_tag_indent
-                if not tag and indent > threshold and line:
-                    tagstack[-1][3].append(line)
-                    line = None
-                if n == last_line or (line and indent <= threshold):
-                    line = end_tags(n == last_line, line if not tag else None, indent)
+            while len(stack) > 1 and (line or n == -1):
+                if stack[-1][0] < indent:
+                    break
+                _, done_tag, content = stack.pop()
+                if done_tag in {'usage', 'example', 'code'}:
+                    # Remove trailing newlines from the snippet before terminating the
+                    # markdown code block.
+                    content.md().rstrip().append('```')
+                # Redetect dedent level based on next line.
+                dedent = None
 
-            if tag and args is not None:
-                tagstack.append((tag, args, indent, []))
-                if tag not in supported_tags:
-                    log.error('%s:%s: unknown tag @%s', self.ctx.file, n, tag)
-                elif n == last_line:
-                    end_tags(n == last_line)
+            # New content fragments are appended to the content object from the top of the
+            # stack.
+            content = stack[-1][2]
+            if tag:
+                # The Content object this tag's content will be pushed to.  For tags that
+                # take content we initialize a new Content object, otherwise we just reuse
+                # the last one on the stack and append to it.
+                tagcontent = Content(postprocess=self.refs_to_markdown) if tag in content_tags else stack[-1][2]
+                stack.append((indent, tag, tagcontent))
+
+                if tag in {'usage', 'example', 'code'}:
+                    if tag in {'usage', 'example'}:
+                        # @usage and @example add a header.
+                        content.md().append(f'##### {tag.title()}\n')
+                    lang = 'lua' if not args else args[0]
+                    content.md().append(f'```{lang}')
+                    # Ensure subsequent dedent is based on the first line of the code
+                    # block
+                    dedent = None
+                elif tag in {'warning', 'note'}:
+                    heading = self.refs_to_markdown(' '.join(args) if args else tag.title())
+                    content.append(Admonition(tag, heading, tagcontent))
+                elif tag == 'tparam' and args and len(args) >= 2:
+                    types = args[0].split('|')
+                    name = args[1]
+                    tagcontent.md().append(' '.join(args[2:]))
+                    params[name] = types, tagcontent
+                elif tag == 'treturn' and args:
+                    types = args[0].split('|')
+                    tagcontent.md().append(' '.join(args[1:]))
+                    returns.append((types, tagcontent))
+                elif tag == 'see' and args:
+                    refs = [self.resolve_ref(see) for see in args]
+                    content.append(SeeAlso([ref.id for ref in refs if ref]))
+                else:
+                    log.error('%s:%s: unknown tag @%s or missing arguments', self.ctx.file, n, tag)
+
             elif line is not None:
-                if tagstack:
-                    last = tagstack[-1]
-                    last[3].append(line)
-                else:
-                    output.append(line)
-        return params, returns, '\n'.join(output)
+                dedent = indent if dedent is None else dedent
+                content.md().append(line[dedent:])
 
+        if len(stack) != 1:
+            log.error('%s:~%s: LuaDox bug: @%s is dangling', self.ctx.file, lines[-1][0], stack[-1][1])
 
+        return params, returns, stack[0][2]
