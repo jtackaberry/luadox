@@ -280,7 +280,7 @@ Here is a summary of LuaDox tags, with more details below the table:
 |-|-|-|-|
 | `@module` | Top-level collection | Declares a module and sets the scope for future documented elements. Modules, like all top-level types, are given separate pages in the rendered documentation. | `@module utils` |
 | `@class` | Top-level collection | Like `@module` but for classes, which are also given their own separate documentation pages. See also `@inherits`.  | `@class xyz.SomeClass` |
-| `@section` |  Collection | Organizes documented elements such as fields, functions, and tables into a visually distinct group with a heading and arbitrary preamble. | `@section utils.files` |
+| `@section` |  Collection | Organizes documented elements such as fields, functions, and tables into a visually distinct group with a heading and arbitrary preamble. Sections can't be nested within other sections; a `@section` tag always creates a *new* section within a top-level collection. | `@section utils.files` |
 | `@table` | Nested collection | Declares a new collection containing only fields (not functions like other collections), and allows nesting where field names are fully qualified based on the encapsulating table(s). In most common cases, `@table` isn't needed and `@section` will suffice. | `@table constants` |
 | `@inherits` | `@class` modifier | Indicates that the current class is subclassed from another class. This influences how references are resolved (superclasses are searched) and the rendered class page includes a visual of the class hierarchy. | `@inherits xyz.BaseClass` |
 | `@tparam` | Function modifier | Documents a typed parameter of the function definition that follows | `@tparam number\|nil w the width of the image, or nil to derive it from height and aspect` |
@@ -290,11 +290,11 @@ Here is a summary of LuaDox tags, with more details below the table:
 | `@meta` | Field modifier | Documents arbitrary information for the field definition that follows | `@meta read/write` |
 | `@within` | Function/field modifier | Relocates the field or function to another collection while preserving its name. | `@within someothermodule` |
 | `@order` | Element modifier | Normally elements are documented in the order they appear in source, but `@order` allows changing the position of an element relative to other elements in the same rendered page. | `@order before somefunc` |
-| `@compact` | Collection modifier | Fields and functions in a collection are shown first in summary table form and then broken out later with full documentation. `@compact` controls whether fields and/or functions should *only* show in tabular form. Useful for elements with smaller comments, such as a table of constants. | `@compact fields` |
+| `@compact` | Collection modifier | Normally, fields and functions in a collection are shown first in summary table form and then broken out later with full documentation. `@compact` controls whether fields and/or functions should *only* show in tabular form. Useful for elements with smaller comments, such as a table of constants. Without arguments, both functions and fields will be shown in compact form, but you can specify `fields` or `functions` as an argument to compact just one of them. | `@compact fields` |
 | `@fullnames` | Collection modifier | Normally the table summary of fields and functions are not fully qualified, they are the unqualified short names. This tag ensures the table summary shows the fully qualified name. Commonly combined with `@compact` | `@fullnames` |
 | `@display` | Element modifier | Explicitly overrides the display name of an element, but does not affect its name for reference purposes. | `@display MyClass` |
 | `@rename` | Element modifier | Overrides *both* the display name and actual name of the element, affecting both its presentation in rendered pages as well as how the element is referenced. | `@rename different_function` |
-| `@scope` | Element modifier | Changes the scope of non top-level elements (i.e. functions, fields, and tables, but not classes or modules), affecting both the element's display name and reference name.  A special scope `.` can be used to treat the element as global and will prevent its name from being qualified by the collection it belongs to. | `@scope .` |
+| `@scope` | Element modifier | Changes the scope of non top-level elements (i.e. functions, fields, and tables, but not classes or modules), affecting both the element's display name and reference name.  A special scope `.` can be used to treat the element as global and will prevent its name from being qualified by the collection it belongs to.  Unlike `@within`, the element is still documented in the same place (class or module page), but its fully qualified name will reflect the given scope name.   | `@scope .` |
 | `@alias` | Element modifier | Adds another name by which the element can be referenced. Does not affect the display name. | `@alias fooconsts` |
 | `@code` | Code block | Creates a code block with Lua syntax highlighting.  Any contents indented below the `@code` line will be included in the code block. | (See below.) |
 | `@example` | Code block | Like `@code` but adds an "Example" heading just above the code block | (See `@code`) |
@@ -534,6 +534,10 @@ end
 --- API available to subclasses.
 -- @section subclassapi
 ```
+
+This is a bit of a rare case, but if the collection being targeted by `@within` itself has a
+`@rename` tag, the collection name that `@within` needs to reference is the pre-renamed
+name of the target collection.
 
 ### `@order`
 
