@@ -16,7 +16,6 @@ __all__ = ['Context', 'Parser', 'ParseError']
 import sys
 import os
 import re
-from collections import OrderedDict
 from configparser import ConfigParser
 from typing import IO, Optional, Union, Tuple, List, Dict, Type, Match
 
@@ -97,10 +96,12 @@ class Parser:
             ManualRef: [],
         })
         # A dict of only top-level References ("toprefs"), keyed by the fully qualified
-        # name of the reference.
+        # name of the reference.  Note that we depend on insertion order being preserved
+        # here, which is guaranteed in Python's native dict as of 3.7:
+        # https://mail.python.org/pipermail/python-dev/2017-December/151283.html
         #
         # name -> TopRef
-        self.topsyms: OrderedDict[str, TopRef] = OrderedDict()
+        self.topsyms: dict[str, TopRef] = {}
 
         # Maps each top-level symbol to its collections, where each value is a dict
         # mapping collection name to a CollectionRef object.  The order that the
@@ -111,8 +112,8 @@ class Parser:
         # first collection, in order to simplify enumerating all content in a topref (via
         # get_collections()).  This does not apply to manual pages, however.
         #
-        # topsym -> OrderedDict(name -> CollectionRef)
-        self.collections: dict[str, OrderedDict[str, CollectionRef]] = {}
+        # topsym -> (name -> CollectionRef)
+        self.collections: dict[str, dict[str, CollectionRef]] = {}
         # A dict of all Reference objects, keyed by fully qualified name.
         #
         # name -> Reference
@@ -246,11 +247,11 @@ class Parser:
         # get_collections(), but manual refs don't do this.
         if isinstance(ref, CollectionRef) and not isinstance(ref, ManualRef):
             if ref.topsym not in self.collections:
-                self.collections[ref.topsym] = OrderedDict()
+                self.collections[ref.topsym] = {}
             collections = self.collections[ref.topsym]
-            # Only add the ref to the collections list (well, ordered dict) if it
-            # doesn't already exist.  If it does already exist, then this is a conflict
-            # which will be reported in the conflict check below.
+            # Only add the ref to the collections list (well, dict) if it doesn't already
+            # exist.  If it does already exist, then this is a conflict which will be
+            # reported in the conflict check below.
             if ref.symbol not in collections:
                 collections[ref.symbol] = ref
 
