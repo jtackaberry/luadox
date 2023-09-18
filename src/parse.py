@@ -884,6 +884,7 @@ class Parser:
                 elif tag in {'warning', 'note'}:
                     heading = self.refs_to_markdown(' '.join(args) if args else tag.title())
                     content.append(Admonition(tag, heading, tagcontent))
+                    dedent = None
                 elif tag == 'tparam' and args and len(args) >= 2:
                     types = args[0].split('|')
                     name = args[1]
