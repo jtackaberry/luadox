@@ -654,10 +654,13 @@ This merely adds an additional name for references.
 
 ### `@code`
 
-Renders a code block with Lua syntax highlighting in the documentation.  The tag takes no
-arguments, but any commented lines indented within @code are included in the code block.
-The code block terminates as soon as a line is has less indentation than the first line
-under the `@code` tag.
+Renders a fenced code block with syntax highlighting in the documentation.  The tag takes
+an optional argument that dictates the syntax highlighting language, which defaults to
+`lua` when not specified.
+
+Any commented lines indented within @code are included in the markdown code block. The
+code block terminates as soon as a line has less indentation than the first line under the
+`@code` tag.
 
 ```lua
 --- Some function to do a thing.
