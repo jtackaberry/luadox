@@ -139,7 +139,7 @@ def get_config(args: argparse.Namespace) -> ConfigParser:
         config.set('project', 'files', '\n'.join(args.files))
     if args.nofollow:
         config.set('project', 'follow', 'false')
-    for prop in ('name', 'outdir', 'css', 'favicon', 'encoding', 'hometext'):
+    for prop in ('name', 'out', 'css', 'favicon', 'encoding', 'hometext', 'renderer'):
         if getattr(args, prop):
             config.set('project', prop, getattr(args, prop))
     if args.manual:
@@ -171,11 +171,15 @@ def main():
                    help='Project name (default Lua Project)')
     p.add_argument('--hometext', action='store', type=str, metavar='TEXT',
                    help='Home link text on the top left of every page')
-    p.add_argument('-o', '--outdir', action='store', type=str, metavar='DIRNAME',
-                   help='Directory name for rendered files, created if necessary (default ./out)')
     p.add_argument('-r', '--renderer', action='store', type=str, metavar='TYPE',
                    help=f'How to render the parsed content: {renderer_names} '
                    '(default: html)')
+    p.add_argument('-o', '--out', action='store', type=str, metavar='PATH',
+                   help='Target path for rendered files, with directories created '
+                   'if necessary. For single-file renderers (e.g. json), this is '
+                   ' treated as a file path if it ends with the appropriate extension '
+                   '(e.g. .json) (default: ./out/ for multi-file renderers, or '
+                   'luadox.<someext> for single-file renderers)')
     p.add_argument('-m', '--manual', action='store', type=str, metavar='ID=FILENAME', nargs='*',
                    help='Add manual page in the form id=filename.md')
     p.add_argument('--css', action='store', type=str, metavar='FILE',
@@ -233,13 +237,16 @@ def main():
             log.exception(f'unhandled {msg}')
         sys.exit(1)
 
+    # LuaDox v1 fallback
     outdir = config.get('project', 'outdir', fallback=None)
+    # LuaDox v2 just calls it 'out'
+    out = config.get('project', 'out', fallback=outdir)
 
     renderer = rendercls(parser)
     try:
         log.info('prerendering %d pages', len(parser.topsyms))
         toprefs = Prerenderer(parser).process()
-        renderer.render(toprefs, outdir)
+        renderer.render(toprefs, out)
     except Exception as e:
         log.exception('unhandled error rendering around %s:%s: %s', parser.ctx.file, parser.ctx.line, e)
         sys.exit(1)
