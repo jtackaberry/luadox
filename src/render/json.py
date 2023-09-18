@@ -77,8 +77,8 @@ class JSONRenderer(Renderer):
             ref = self.parser.resolve_ref(tp)
             if ref:
                 resolved.append({
-                    'refid': ref.id,
                     'name': tp,
+                    'refid': ref.id,
                 })
             else:
                 resolved.append({'name': tp})
@@ -103,22 +103,26 @@ class JSONRenderer(Renderer):
             section['content'] = content
         return section
 
-    def _init_topref(self, topref: TopRef) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    def _init_topref(self, topref: TopRef, **kwargs) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         sections: List[Dict[str, Any]] = []
         out: Dict[str, Any] = {
             'id': topref.id,
             'type': topref.type,
             'name': topref.name,
-            'sections': sections,
         }
+        # Include kwargs-provided fields ahead of sections
+        out.update({k:v for k, v in kwargs.items() if v})
+        out['sections'] = sections
         return out, sections
 
     def _render_classmod(self, topref: TopRef) -> Dict[str, Any]:
-        out, sections = self._init_topref(topref)
+        hierarchy = None
         if isinstance(topref, ClassRef):
             h = topref.hierarchy
             if len(h) > 1:
-                out['hierarchy'] = [{'redid': ref.id, 'name': ref.name} for ref in h]
+                hierarchy = [{'name': ref.name, 'refid': ref.id} for ref in h]
+
+        out, sections = self._init_topref(topref, hierarchy=hierarchy)
 
         for colref in topref.collections:
             self.ctx.update(ref=colref)
@@ -165,13 +169,13 @@ class JSONRenderer(Renderer):
             'name': ref.name,
             'display': ref.display,
         }
-        content = self._render_content(ref.content)
-        if content:
-            field['content'] = content
         if ref.types:
             field['types'] = self._render_types(ref.types)
         if ref.meta:
             field['meta'] = ref.meta
+        content = self._render_content(ref.content)
+        if content:
+            field['content'] = content
         return field
 
     def _render_manual(self, topref: ManualRef) -> Dict[str, Any]:
