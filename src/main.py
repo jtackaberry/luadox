@@ -183,9 +183,9 @@ def main():
     p.add_argument('-m', '--manual', action='store', type=str, metavar='ID=FILENAME', nargs='*',
                    help='Add manual page in the form id=filename.md')
     p.add_argument('--css', action='store', type=str, metavar='FILE',
-                   help='Custom CSS file')
+                   help='Custom CSS file (html renderer)')
     p.add_argument('--favicon', action='store', type=str, metavar='FILE',
-                   help='Path to favicon file')
+                   help='Path to favicon file (html renderer)')
     p.add_argument('--nofollow', action='store_true',
                    help="Disable following of require()'d files (default false)")
     p.add_argument('--encoding', action='store', type=str, metavar='CODEC', default=None,
