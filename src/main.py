@@ -14,10 +14,9 @@
 
 import sys
 
-# First order of business is to ensure we are running a compatible
-# version of Python.
-if sys.hexversion < 0x03060000:
-    print('FATAL: Python 3.6 or later is required.')
+# First order of business is to ensure we are running a compatible version of Python.
+if sys.hexversion < 0x03080000:
+    print('FATAL: Python 3.8 or later is required.')
     sys.exit(1)
 
 import os
