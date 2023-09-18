@@ -14,15 +14,20 @@
 
 __all__ = ['YAMLRenderer']
 
-import yaml
 from typing import List
+
+import yaml
+try:
+    from yaml import CDumper as Dumper
+except ImportError:
+    from yaml import Dumper
 
 from ..parse import *
 from ..reference import *
 from ..utils import *
 from .json import JSONRenderer
 
-def str_representer(dumper: yaml.Dumper, data: str, **kwargs):
+def str_representer(dumper: Dumper, data: str, **kwargs):
     """
     Represents strings containing newlins as a YAML block scalar.
     """
@@ -38,8 +43,8 @@ class YAMLRenderer(JSONRenderer):
         Renders toprefs as YAML to the given output directory or file.
         """
         # Register the custom string representer for block strings
-        yaml.add_representer(str, str_representer)
+        Dumper.add_representer(str, str_representer)
         project = self._generate(toprefs)
         outfile = self._get_outfile(dst, ext='.yaml')
         with open(outfile, 'w') as f:
-            yaml.dump(project, stream=f, sort_keys=False, allow_unicode=True)
+            yaml.dump(project, stream=f, sort_keys=False, allow_unicode=True, Dumper=Dumper)
