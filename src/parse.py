@@ -858,7 +858,7 @@ class Parser:
                 if done_tag in {'usage', 'example', 'code'}:
                     # Remove trailing newlines from the snippet before terminating the
                     # markdown code block.
-                    content.md().rstrip().append('```')
+                    content.md().rstrip().append('```\n')
                 # Redetect dedent level based on next line.
                 dedent = None
 
