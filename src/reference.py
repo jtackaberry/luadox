@@ -18,6 +18,7 @@ __all__ = [
     'FunctionRef', 'FieldRef'
 ]
 
+import hashlib
 import re
 from dataclasses import dataclass, field, fields
 from typing import TypeVar, Optional, Union, List, Tuple, Dict, Any
@@ -177,9 +178,14 @@ class Reference:
     @property
     def id(self) -> str:
         """
-        A globally unique identifier of the Reference.
+        A globally unique opaque identifier of the Reference.
         """
-        return f'{self.topref.type}#{self.topsym}#{self.name}'
+        # Current implementation hashes this string to prevent consumers of the json/yaml
+        # render output from parsing/interpreting the id.  This consequently does add some
+        # risk of collision, but 160 bits with BLAKE2 should be enough to make this
+        # exceptionally unlikely.
+        s = f'{self.topref.type}#{self.topsym}#{self.name}'
+        return hashlib.blake2b(s.encode(), digest_size=20).hexdigest()
 
     @property
     def topsym(self) -> str:

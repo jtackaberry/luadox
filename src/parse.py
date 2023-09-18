@@ -278,7 +278,10 @@ class Parser:
                           ref.file, ref.line, ref.type, ref.name, conflict.type, conflict.file, conflict.line)
         else:
             self.refs[ref.name] = ref
-            self.refs_by_id[ref.id] = ref
+            if ref.id in self.refs_by_id:
+                log.critical('collision in reference id for %s (%s), please report this as a bug.', ref.name, ref.id)
+            else:
+                self.refs_by_id[ref.id] = ref
 
     def _check_disconnected_reference(self, ref: Union[Reference, None]) -> bool:
         """
