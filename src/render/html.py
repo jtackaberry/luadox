@@ -12,23 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__all__ = ['Renderer']
+__all__ = ['HTMLRenderer']
 
 import sys
 import os
 import re
 import mimetypes
 from contextlib import contextmanager
-from typing import Union, Tuple, List, Callable, Generator, Type
+from typing import Union, Tuple, List, Callable, Generator, Type, Optional
 
 import commonmark.blocks
 import commonmark_extensions.tables
 
-from .assets import assets
-from .log import log
-from .reference import *
-from .parse import *
-from .utils import *
+from ..assets import assets
+from ..log import log
+from ..reference import *
+from ..parse import *
+from ..utils import *
+from .base import Renderer
 
 # Files from the assets directory to be copied
 ASSETS = [
@@ -49,7 +50,7 @@ ASSETS = [
 commonmark.blocks.CODE_INDENT = 1000
 
 class CustomRendererWithTables(commonmark_extensions.tables.RendererWithTables):
-    def __init__(self, renderer: 'Renderer', *args, **kwargs):
+    def __init__(self, renderer: 'HTMLRenderer', *args, **kwargs):
         self.renderer = renderer
         self.parser = renderer.parser
         super().__init__(*args, **kwargs)
@@ -82,14 +83,9 @@ class TableWaitingForBug3(commonmark_extensions.tables.Table):
 commonmark.blocks.Table = TableWaitingForBug3 # pyright: ignore
 
 
-class Renderer:
-    """
-    Takes a Parser object and provides an interface to generate rendered HTML.
-    """
+class HTMLRenderer(Renderer):
     def __init__(self, parser: Parser):
-        self.parser = parser
-        self.config = parser.config
-        self.ctx = parser.ctx
+        super().__init__(parser)
 
         # Create a pseudo Reference for the search page using the special 'search' type.
         # This is used to ensure the relative paths are correct. Use the name '--search'
@@ -725,12 +721,17 @@ class Renderer:
         return '\n'.join(lines)
 
 
-    def render(self, toprefs: List[TopRef], outdir: str) -> None:
+    def render(self, toprefs: List[TopRef], outdir: Optional[str]) -> None:
         """
-        Renders all toprefs to the given output directory.
+        Renders toprefs as HTML to the given output directory.
+        """
+        if not outdir:
+            log.warn('"out" is not defined in config file, assuming ./out/')
+            outdir = 'out'
+        os.makedirs(outdir, exist_ok=True)
+        self.copy_file_from_config('project', 'css', outdir)
+        self.copy_file_from_config('project', 'favicon', outdir)
 
-        It's the caller's obligation to have passed these toprefs through the prerenderer.
-        """
         for ref in toprefs:
             if ref.userdata.get('empty') and ref.implicit:
                 # Reference has no content and it was also implicitly generated, so we don't render it.

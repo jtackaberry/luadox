@@ -21,7 +21,6 @@ if sys.hexversion < 0x03080000:
 
 import os
 import re
-import shutil
 import argparse
 import shlex
 import glob
@@ -31,8 +30,8 @@ from typing import Generator, Union, Dict, Tuple, Set
 
 from .log import log
 from .parse import *
-from .render import *
 from .prerender import Prerenderer
+from .render import RENDERERS
 
 try:
     # version.py is generated at build time, so we are running from the proper
@@ -162,19 +161,9 @@ def get_files(config: ConfigParser) -> Generator[Tuple[str, str], None, None]:
                     yield modalias, fname
 
 
-def copy_file_from_config(section: str, option: str, outdir: str) -> None:
-    fname = config.get(section, option, fallback=None)
-    if not fname:
-        return
-    if not os.path.exists(fname):
-        log.fatal('%s file "%s" does not exist', option, fname)
-        sys.exit(1)
-    else:
-        shutil.copy(fname, outdir)
-
-
 def main():
     global config
+    renderer_names = ', '.join(RENDERERS)
     p = FullHelpParser(prog='luadox')
     p.add_argument('-c', '--config', type=str, metavar='FILE',
                    help='Luadox configuration file')
@@ -184,6 +173,9 @@ def main():
                    help='Home link text on the top left of every page')
     p.add_argument('-o', '--outdir', action='store', type=str, metavar='DIRNAME',
                    help='Directory name for rendered files, created if necessary (default ./out)')
+    p.add_argument('-r', '--renderer', action='store', type=str, metavar='TYPE',
+                   help=f'How to render the parsed content: {renderer_names} '
+                   '(default: html)')
     p.add_argument('-m', '--manual', action='store', type=str, metavar='ID=FILENAME', nargs='*',
                    help='Add manual page in the form id=filename.md')
     p.add_argument('--css', action='store', type=str, metavar='FILE',
@@ -204,6 +196,13 @@ def main():
     if not files:
         # Files are mandatory
         log.critical('no input files or directories specified on command line or config file')
+        sys.exit(1)
+
+    renderer = config.get('project', 'renderer', fallback='html')
+    try:
+        rendercls = RENDERERS[renderer]
+    except KeyError:
+        log.error('unknown renderer "%s", valid types are: %s', renderer, renderer_names)
         sys.exit(1)
 
     # Derive a set of base paths based on the input files that will act as search
@@ -235,15 +234,8 @@ def main():
         sys.exit(1)
 
     outdir = config.get('project', 'outdir', fallback=None)
-    if not outdir:
-        log.warn('outdir is not defined in config file, assuming ./out')
-        outdir = 'out'
-    os.makedirs(outdir, exist_ok=True)
 
-    copy_file_from_config('project', 'css', outdir)
-    copy_file_from_config('project', 'favicon', outdir)
-
-    renderer = Renderer(parser)
+    renderer = rendercls(parser)
     try:
         log.info('prerendering %d pages', len(parser.topsyms))
         toprefs = Prerenderer(parser).process()
