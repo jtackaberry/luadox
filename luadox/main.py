@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+__all__ = ['main']
+
+import os
 import sys
 
 # First order of business is to ensure we are running a compatible version of Python.
@@ -19,7 +22,11 @@ if sys.hexversion < 0x03080000:
     print('FATAL: Python 3.8 or later is required.')
     sys.exit(1)
 
-import os
+# Add third party libraries to module path.  This only applies to the zip-bundled
+# distribution.
+if hasattr(__loader__, 'archive'):
+    sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), '../ext')))
+
 import re
 import argparse
 import shlex
@@ -32,14 +39,7 @@ from .log import log
 from .parse import *
 from .prerender import Prerenderer
 from .render import RENDERERS
-
-try:
-    # version.py is generated at build time, so we are running from the proper
-    # distribution.
-    from .version import __version__  # pyright: ignore
-except ImportError:
-    # Running from local tree, use dummy value.
-    __version__ = 'x.x.x-dev'
+from .version import __version__
 
 # A type used for mapping a user-defined Lua module name to a set of paths (or glob
 # expressions).  The module name is split on '.' so the dict key is a tuple, but the

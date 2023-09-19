@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-"""
-Wrapper script to run luadox from the current source tree.  Used for development/testing
-only, as distribution uses the single-file zip bundle.
-"""
-import sys
-sys.path.insert(0, 'src')
-import src as luadox
-luadox.main()

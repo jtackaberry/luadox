@@ -59,4 +59,4 @@ class Assets:
             h.update(self.get(f))
         return h.hexdigest()
 
-assets = Assets(os.path.abspath(os.path.join(os.path.dirname(__file__), '../assets')))
+assets = Assets(os.path.abspath(os.path.join(os.path.dirname(__file__), 'data')))

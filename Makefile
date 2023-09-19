@@ -1,58 +1,38 @@
-ASSETS = $(wildcard assets/*)
-EXT = $(wildcard ext/* ext/*/*)
-TAG := $(subst v,,$(or $(shell git describe --tags 2>/dev/null), $(shell echo v0.0.1)))
-RELEASE := luadox-$(TAG)
+VER := $(shell grep __ver luadox/version.py  | cut -d\" -f2)
+# Name of the release archive without extension
+ARCHIVE := luadox-$(VER)
 
 build/luadox: build/pkg.zip
 	echo '#!/usr/bin/env python3' > build/luadox
 	cat build/pkg.zip >> build/luadox
 	chmod 755 build/luadox
 
-build/pkg: src/*
+build/pkg: luadox/*
 	mkdir -p build/pkg/luadox
-	cp -a src/* build/pkg/luadox
-	echo "import luadox; luadox.main()" > build/pkg/__main__.py
+	cp -a luadox/* build/pkg/luadox
+	echo "from luadox.main import main; main()" > build/pkg/__main__.py
 	touch build/pkg
 
-build/pkg/ext: ext $(EXT)
-	@echo "*** copying external modules"
-	mkdir -p build/pkg/
-	cp -a ext/* build/pkg/
-	touch build/pkg/ext
+build/pkg/ext: requirements.txt
+	@echo "*** installing dependencies into $@/"
+	pip3 install -t ./build/pkg/ext -r requirements.txt
+	@# These aren't needed
+	rm -rf build/pkg/ext/bin build/pkg/ext/*.dist-info build/pkg/ext/*/*.so
 
-build/pkg/assets: $(ASSETS)
-	@echo "*** copying assets"
-	mkdir -p build/pkg
-	cp -a assets/ build/pkg
-	touch build/pkg/assets
-
-build/pkg.zip: build/pkg build/pkg/ext build/pkg/assets build/pkg/luadox/version.py
+build/pkg.zip: build/pkg build/pkg/ext
 	@echo "*** creating bundle at build/luadox"
 	find build -type d -name __pycache__ -prune -exec rm -rf "{}" \;
 	cd build/pkg && zip -q -r ../pkg.zip .
 
-ext: requirements.txt
-	@echo "*** installing dependencies into ext/"
-	pip3 install -t ./ext -r requirements.txt
-	@# These aren't needed
-	rm -rf ext/bin ext/*.dist-info
-
-# Regenerate version file if anything likely to affect it has changed
-build/pkg/luadox/version.py: .git/refs/tags .git/refs/heads
-	@echo "*** creating version.py"
-	@echo "# This is a generated file" > build/pkg/luadox/version.py
-	@echo "__version__ = \"$(TAG)\"" >> build/pkg/luadox/version.py
-
 .PHONY: docker
-docker: build/luadox
+docker:
 	docker build --pull -t luadox:latest .
 
 .PHONY: release
 release: build/luadox
-	cd build && tar zcf $(RELEASE).tar.gz luadox
-	cd build && zip $(RELEASE).zip luadox
-
+	cd build && tar zcf $(ARCHIVE).tar.gz luadox
+	cd build && zip $(ARCHIVE).zip luadox
 
 .PHONY: clean
 clean:
-	rm -rf ext build
+	rm -rf build
