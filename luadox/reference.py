@@ -13,7 +13,7 @@
 # limitations under the License.
 
 __all__ = [
-    'RefT', 'Reference', 'CollectionRef', 'TopRef',
+    'RefT', 'RawContentType', 'Reference', 'CollectionRef', 'TopRef',
     'ModuleRef', 'ClassRef', 'ManualRef', 'SectionRef', 'TableRef',
     'FunctionRef', 'FieldRef'
 ]
@@ -24,10 +24,12 @@ from dataclasses import dataclass, field, fields
 from typing import TypeVar, Optional, Union, List, Tuple, Dict, Any
 
 from .log import log
+from .tags import Tag
 from .utils import Content
 
 # Used for generics taking Reference types
 RefT = TypeVar('RefT', bound='Reference')
+RawContentType =  List[Tuple[int, str, Union[List[Tag], None]]]
 
 @dataclass
 class Reference:
@@ -99,7 +101,7 @@ class Reference:
     # A list of lines containing the documented content for this collection.  Each element
     # is a 2-tuple in the form (line number, text) where line number is the specific line
     # in self.file where the comment appears, and text is in markdown format.
-    raw_content: List[Tuple[int, str]] = field(default_factory=list)
+    raw_content: RawContentType = field(default_factory=list)
     # The processed (from raw) content which is set during the prerender stage
     content: Content = field(default_factory=Content)
     # A map of modifiers that apply to this Reference that affect how it is rendered,

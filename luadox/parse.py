@@ -19,6 +19,8 @@ import re
 from configparser import ConfigParser
 from typing import IO, Optional, Union, Tuple, List, Dict, Type, Match
 
+from . import tags
+from .tags import TagParser, ParseError
 from .log import log
 from .reference import *
 from .utils import *
@@ -26,12 +28,12 @@ from .utils import *
 # TODO: better vararg support
 ParseFuncResult = Tuple[Union[str, None], Union[List[str], None]] 
 
-COLLECTION_TAGS: Dict[str, Type[Reference]] = {
-    'section': SectionRef,
-    'classmod': ClassRef,
-    'class': ClassRef,
-    'module': ModuleRef,
-    'table': TableRef,
+# Maps collection tags to their typed Reference objects
+COLLECTION_TAGS: Dict[Type[tags.CollectionTag], Type[Reference]] = {
+    tags.SectionTag: SectionRef,
+    tags.ClassTag: ClassRef,
+    tags.ModuleTag: ModuleRef,
+    tags.TableTag: TableRef,
 }
 
 class Context:
@@ -70,9 +72,6 @@ class ReferenceDict(dict):
     """
     def __getitem__(self, k: Type[RefT]) -> List[RefT]:
         return super().__getitem__(k)
-
-class ParseError(ValueError):
-    pass
 
 class Parser:
     """
@@ -123,6 +122,7 @@ class Parser:
 
         # This holds the context of the current file and reference being processed
         self.ctx = Context()
+        self.tag_parser = TagParser()
 
 
     def _next_line(self, strip=True) -> Tuple[Union[int, None], Union[str, None]]:
@@ -291,9 +291,10 @@ class Parser:
         if ref and not ref.userdata.get('added'):
             if ref.symbol:
                 return True
-            # Potentially disconnected comment stanza here, but let's first check to see if there's
-            # any text in the comments, otherwise a blank --- would warn somewhat pointlessly.
-            content = ''.join(line.lstrip('-').strip() for (_, line) in ref.raw_content)
+            # Potentially disconnected comment stanza here, but let's first check to see
+            # if there's any text in the comments, otherwise a blank --- would warn
+            # somewhat pointlessly.
+            content = ''.join(line.lstrip('-').strip() for (_, line, _) in ref.raw_content)
             if content:
                 log.warning('%s:%s: comment block is not connected with any section, ignoring', ref.file, ref.line)
         return False
@@ -334,7 +335,11 @@ class Parser:
         # Lua source file. This is returned, and the caller can then attempt to discover
         # the source file for the given module and call parse_source() on that.
         requires: list[str] = []
+        re_require = recache(r'''\brequire\b *\(?['"]([^'"]+)['"]''')
 
+        # Comment blocks must begin with a triple dash.  The block may thereafter use
+        # either 2 or 3 dashes throughout.
+        re_start_comment_block = recache(r'^(---[^-]|---+$)')
         # Whether we should try to discover field/function from the next line
         # of code.  Usually this will be True but e.g. if we encounter a
         # @class or @table tag, we don't want to treat it as a field.
@@ -346,8 +351,6 @@ class Parser:
         # Reference to the current collection, defaulting to implicit module ref
         collection = modref
         self.ctx.update(file=path)
-        re_start_comment_block = recache(r'^(---[^-]|---+$)')
-        re_require = recache(r'''\brequire\b *\(?['"]([^'"]+)['"]''')
         while True:
             n, line = self._next_line(strip=False)
             if n is None or line is None:
@@ -363,90 +366,95 @@ class Parser:
                 # of code).
                 ref = Reference(self.refs, file=path, line=n, scopes=scopes)
                 self.ctx.update(ref=ref)
-            if line.startswith('--'):
-                if ref:
-                    tag, args = self._parse_tag(line)
-                    if tag in COLLECTION_TAGS:
-                        if not args:
-                            raise ParseError(f'@{tag} is missing argment')
-                        ref = COLLECTION_TAGS[tag].clone_from(
+            comment = line.startswith('--')
+            if comment and ref:
+                # This tracks the number of tags we parsed and handled.
+                ntags = 0
+                # List of detected but unprocessed tags for this line.  It's added to the
+                # raw content for the ref and will be handled later during prerendering by
+                # parse_raw_content()
+                unprocessed_tags = []
+                for tag in self.tag_parser.parse(line, path, n):
+                    # Will decrement below if we don't end up handling this tag now.
+                    ntags += 1
+                    if isinstance(tag, tags.CollectionTag):
+                        ref = COLLECTION_TAGS[type(tag)].clone_from(
                             ref, 
                             line=n,
                             scopes=scopes,
-                            symbol=args[0],
+                            symbol=tag.name,
                             collection=collection,
                             level=table_level,
                         )
                         # This ref becomes the new section.
                         collection = ref
-                    if tag == 'within':
-                        if not args:
-                            raise ParseError('@within not in form: @within <collection>')
-                        ref.within = args[0]
-                    elif tag == 'classmod' or tag == 'class':
+                    if isinstance(tag, tags.WithinTag):
+                        ref.within = tag.name
+                    elif isinstance(tag, tags.ClassTag):
                         if isinstance(scopes[-1], ClassRef):
-                            # This is a class being declared within an existing class scope.  We
-                            # don't support nested classes, so remove the previous class from the
-                            # scopes list (which affects this new class's Reference).
+                            # This is a class being declared within an existing class
+                            # scope.  We don't support nested classes, so remove the
+                            # previous class from the scopes list (which affects this
+                            # new class's Reference).
                             scopes.pop()
-                        # This is a topref, so replace scopes list for later References, but don't
-                        # append to the current scopes list as that affects the scopes for the
-                        # new class Reference.
+                        # This is a topref, so replace scopes list for later
+                        # References, but don't append to the current scopes list as
+                        # that affects the scopes for the new class Reference.
                         scopes = [scopes[0], ref]
                         parse_next_code_line = False
-                    elif tag == 'module':
+                    elif isinstance(tag, tags.ModuleTag):
                         # As with class above, replace scopes list.
                         scopes = [scopes[0], ref]
-                    elif tag == 'table':
+                    elif isinstance(tag, tags.TableTag):
                         scopes.append(ref)
                         parse_next_code_line = False
-                    elif tag == 'field':
-                        if not args:
-                            raise ParseError('@field not in form: @field <name> <description...>')
-                        # Inject a field type Reference with the given arguments.  Here we also
-                        # make a shallow copy of the current scopes otherwise the popping below
-                        # that occurs when the table concludes will end up modifying the scopes
-                        # here after the fact.
+                    elif isinstance(tag, tags.FieldTag):
+                        # Inject a field type Reference with the given arguments.
+                        # Here we also make a shallow copy of the current scopes
+                        # otherwise the popping below that occurs when the table
+                        # concludes will end up modifying the scopes here after the
+                        # fact.
                         field = FieldRef(
                             self.refs, file=path, line=n, scopes=scopes[:],
-                            symbol=args[0], collection=collection
+                            symbol=tag.name, collection=collection
                         )
-                        field.raw_content.append((n, ' '.join(args[1:])))
+                        field.raw_content.append((n, tag.desc, []))
                         self._add_reference(field, modref)
-                    elif tag == 'alias':
-                        if not args:
-                            raise ParseError('@alias not in form: @alias <name>')
-                        self.refs[args[0]] = ref
-                    elif tag == 'compact':
-                        ref.flags['compact'] = args or ['fields', 'functions']
-                    elif tag == 'fullnames':
+                    elif isinstance(tag, tags.AliasTag):
+                        self.refs[tag.name] = ref
+                    elif isinstance(tag, tags.CompactTag):
+                        ref.flags['compact'] = tag.elements
+                    elif isinstance(tag, tags.FullnamesTag):
                         ref.flags['fullnames'] = True
-                    elif tag in ('meta', 'scope', 'rename', 'inherits', 'display'):
-                        if not args:
-                            raise ParseError(f'@{tag} is missing argument')
-                        ref.flags[str(tag)] = ' '.join(args)
-                        # Some of these tags can affect display or name, so clear any
-                        # cached attributes.
+                    elif isinstance(tag, tags.MetaTag):
+                        ref.flags['meta'] = tag.value
+                    elif isinstance(tag, tags.InheritsTag):
+                        ref.flags['inherits'] = tag.superclass
+                    elif isinstance(tag, tags.RenameTag):
+                        ref.flags['rename'] = tag.name
                         ref.clear_cache()
-                        if tag == 'rename' and type(ref) == type(scopes[-1]) and ref.symbol == scopes[-1].scope:
+                        if type(ref) == type(scopes[-1]) and ref.symbol == scopes[-1].scope:
                             # The current reference matches the last scope, so rename this scope.
                             scopes[-1].flags['rename'] = ref.flags['rename']
                             scopes[-1].clear_cache()
-                    elif tag in ('type',):
-                        if not args:
-                            raise ParseError(f'@{tag} is missing argment')
-                        ref.flags[str(tag)] = args[0].split('|')
-                    elif tag in ('order',):
-                        if not args:
-                            raise ParseError(f'@{tag} is missing argment')
-                        ref.flags[str(tag)] = args
-                    elif tag == 'section':
-                        if not args:
-                            raise ParseError(f'@{tag} is missing argment')
-                        # Nothing special is otherwise needed here.
-                    else:
-                        ref.raw_content.append((n, line))
-            else:
+                    elif isinstance(tag, (tags.ScopeTag, tags.DisplayTag)):
+                        ref.flags[tag.type] = tag.name
+                        ref.clear_cache()
+                    elif isinstance(tag, tags.TypeTag):
+                        ref.flags['type'] = tag.types
+                    elif isinstance(tag, tags.OrderTag):
+                        ref.flags['order'] = tag
+                    elif isinstance(tag, tags.UnrecognizedTag):
+                        log.warning('%s:%s: unrecognized tag @%s, ignoring', path, n, tag.name)
+                    elif not isinstance(tag, tags.SectionTag):
+                        unprocessed_tags.append(tag)
+                        ntags -= 1
+                if not ntags:
+                    # This line doesn't contain a tag we handled.  It might contain
+                    # content tags such as @tparam but we handle those during prerendering
+                    # after all the content has been collected.
+                    ref.raw_content.append((n, line, unprocessed_tags))
+            elif not comment:
                 # This line doesn't start with a comment, but may have one at the end
                 # which we remove here.
                 line = strip_trailing_comment(line)
@@ -591,7 +599,7 @@ class Parser:
                     # ref's content just below.
                     continue
 
-            ref.raw_content.append((n, line))
+            ref.raw_content.append((n, line, None))
 
 
     def get_reference(self, typ: Type[Reference], name: str) -> Union[Reference, None]:
@@ -676,28 +684,31 @@ class Parser:
                 # in which case _add_reference() would already have logged an error.
                 ordered.remove(ref)
                 continue
-            order = ref.flags.get('order')
+            order: Optional[tags.OrderTag] = ref.flags.get('order')
             if not order:
                 continue
-            ordered.remove(ref)
-            if len(order) == 1:
-                whence = order[0]
-                if whence == 'first':
+            if not order.anchor:
+                # No anchor means only first or last is supported.
+                if order.whence == 'first':
+                    ordered.remove(ref)
                     ordered.insert(0, ref)
-                elif whence == 'last':
+                elif order.whence == 'last':
+                    ordered.remove(ref)
                     ordered.append(ref)
-                continue
+                else:
+                    log.error('%s:~%s @order %s requires an anchor reference', ref.file, ref.line, order.whence)
             else:
-                whence, anchor = order[:2]
-            for n, other in enumerate(ordered):
-                if other.symbol == anchor:
-                    if whence == 'before':
-                        ordered.insert(n, ref)
-                    else:
-                        ordered.insert(n+1, ref)
-                    break
-            else:
-                log.error('%s:~%s unknown @order anchor reference %s', ref.file, ref.line, anchor)
+                for n, other in enumerate(ordered):
+                    if other.symbol == order.anchor:
+                        if order.whence == 'before':
+                            ordered.remove(ref)
+                            ordered.insert(n, ref)
+                        else:
+                            ordered.remove(ref)
+                            ordered.insert(n+1, ref)
+                        break
+                else:
+                    log.error('%s:~%s unknown @order anchor reference %s', ref.file, ref.line, order.anchor)
         return first + ordered + last
 
 
@@ -812,7 +823,7 @@ class Parser:
         return block
 
 
-    def parse_raw_content(self, lines: List[Tuple[int, str]], strip_comments=True) -> Tuple[
+    def parse_raw_content(self, lines: RawContentType) -> Tuple[
             Dict[str, Tuple[List[str], Content]],
             List[Tuple[List[str], Content]],
             Content
@@ -827,35 +838,51 @@ class Parser:
         tags, a list of (types, docstrings) for @treturn tags, and a string holding the
         converted content to markdown.
         """
+        assert(self.ctx.file)
         params: dict[str, tuple[list[str], Content]] = {}
         returns: list[tuple[list[str], Content]] = []
         # These tags take nested content
-        content_tags = {'warning', 'note', 'tparam', 'treturn'}
+        content_tags = tags.AdmonitionTag, tags.ParamTag, tags.ReturnTag
 
         # We pass _refs_to_markdown() as a postprocessor for the Content (here as well as
         # below) which will resolve all references when the renderer finally fetches the
         # markdown content via the Markdown.get() method.
         #
         # List of (indent, tag, content)
-        stack: list[tuple[int, str,  Content]] = [(0, '', Content(postprocess=self.refs_to_markdown))]
+        stack: list[tuple[int, tags.Tag|None,  Content]] = [
+            # Initialize to the top-level Content object
+            (0, None, Content(postprocess=self.refs_to_markdown))
+        ]
         # The number of columns to dedent raw lines before adding to the parsed content.
         # If None, we set this to the current line's indent level and use that as dedent
         # until reset back to None.
         dedent = None
         # We tack on a sentinel value at the end of the raw lines which forces closure of
         # all pending tags on the stack.
-        for n, line in lines + [(-1, '')]:
+        for n, line, taglist in lines + [(-1, '', None)]:
             self.ctx.update(line=n)
-            tag, args = self._parse_tag(line, require_comment=strip_comments)
-            if strip_comments:
+            if taglist is None:
+                # If taglist is None then we know we're parsing a manual page where we
+                # support tags without comment blocks.  Pass False to TagParser.parse()
+                # so it knows it shouldn't require a comment prefix for tag detection.
+                taglist = list(self.tag_parser.parse(line, self.ctx.file, n, False))
+            else:
+                # We're processing content from a code block (because taglist isn't None),
+                # so strip the preceding comment markers before processing the content.
                 line = line.lstrip('-').rstrip()
+
+            # This indicates a bug (more of a TODO really), not affected by user input.
+            assert len(taglist) <= 1, 'multiple content tags per line NYI'
+            tag = taglist[0] if taglist else None
+            # Now that comment prefixes have been stripped (if applicable), grab the
+            # current indent level which is used for detecting nested tags.
             indent = get_indent_level(line)
 
             while len(stack) > 1 and (line or n == -1):
                 if stack[-1][0] < indent:
                     break
                 _, done_tag, content = stack.pop()
-                if done_tag in {'usage', 'example', 'code'}:
+                if isinstance(done_tag, tags.CodeTag):
                     # Remove trailing newlines from the snippet before terminating the
                     # markdown code block.
                     content.md().rstrip().append('```\n')
@@ -869,33 +896,32 @@ class Parser:
                 # The Content object this tag's content will be pushed to.  For tags that
                 # take content we initialize a new Content object, otherwise we just reuse
                 # the last one on the stack and append to it.
-                tagcontent = Content(postprocess=self.refs_to_markdown) if tag in content_tags else stack[-1][2]
+                tagcontent = Content(postprocess=self.refs_to_markdown) if isinstance(tag,  content_tags) else stack[-1][2]
                 stack.append((indent, tag, tagcontent))
 
-                if tag in {'usage', 'example', 'code'}:
-                    if tag in {'usage', 'example'}:
+                if isinstance(tag, tags.CodeTag):
+                    if isinstance(tag, (tags.UsageTag, tags.ExampleTag)):
                         # @usage and @example add a header.
-                        content.md().append(f'##### {tag.title()}\n')
-                    lang = 'lua' if not args else args[0]
+                        content.md().append(f'##### {tag.type.title()}\n')
+                    lang = tag.lang or 'lua'
                     content.md().append(f'```{lang}')
                     # Ensure subsequent dedent is based on the first line of the code
                     # block
                     dedent = None
-                elif tag in {'warning', 'note'}:
-                    heading = self.refs_to_markdown(' '.join(args) if args else tag.title())
-                    content.append(Admonition(tag, heading, tagcontent))
+                elif isinstance(tag, tags.AdmonitionTag):
+                    heading = self.refs_to_markdown(tag.title or tag.type.title())
+                    content.append(Admonition(tag.type, heading, tagcontent))
                     dedent = None
-                elif tag == 'tparam' and args and len(args) >= 2:
-                    types = args[0].split('|')
-                    name = args[1]
-                    tagcontent.md().append(' '.join(args[2:]))
-                    params[name] = types, tagcontent
-                elif tag == 'treturn' and args:
-                    types = args[0].split('|')
-                    tagcontent.md().append(' '.join(args[1:]))
-                    returns.append((types, tagcontent))
-                elif tag == 'see' and args:
-                    refs = [self.resolve_ref(see) for see in args]
+                elif isinstance(tag, tags.ParamTag):
+                    if tag.desc:
+                        tagcontent.md().append(tag.desc)
+                    params[tag.name] = tag.types, tagcontent
+                elif isinstance(tag, tags.ReturnTag):
+                    if tag.desc:
+                        tagcontent.md().append(tag.desc)
+                    returns.append((tag.types, tagcontent))
+                elif isinstance(tag, tags.SeeTag):
+                    refs = [self.resolve_ref(see) for see in tag.refs]
                     content.append(SeeAlso([ref.id for ref in refs if ref]))
                 else:
                     log.error('%s:%s: unknown tag @%s or missing arguments', self.ctx.file, n, tag)

@@ -24,7 +24,7 @@ from .utils import *
 class Prerenderer:
     """
     The prerender stage populates the specific typed Reference fields needed for
-    rendering. generates intermediate data structures used by renderers.
+    rendering.
 
     All references are resolved to markdown links (whose target is in the form
     luadox:<refid>), and tags (such as @tparam) are parsed and validated.
@@ -117,14 +117,14 @@ class Prerenderer:
         if topref.raw_content:
             self.ctx.update(ref=topref)
             # Include any preamble before the first heading.
-            _, _, content = self.parser.parse_raw_content(topref.raw_content, strip_comments=False)
+            _, _, content = self.parser.parse_raw_content(topref.raw_content)
             topref.content = content
             topref.heading = self.parser.refs_to_markdown(topref.heading)
         for ref in self.parser.get_collections(topref):
             # Manuals only have SectionRefs
             assert(isinstance(ref, SectionRef))
             self.ctx.update(ref=ref)
-            _, _, content = self.parser.parse_raw_content(ref.raw_content, strip_comments=False)
+            _, _, content = self.parser.parse_raw_content(ref.raw_content)
             ref.heading = self.parser.refs_to_markdown(ref.heading)
             ref.content = content
             ref.level = int(ref.flags['level'])
