@@ -663,9 +663,9 @@ class Parser:
         """
         Reorders the given list of Reference objects according to any @order tags.
         """
-        # For @reorder first
+        # For @order first
         first: list[RefT] = []
-        # For @reorder last
+        # For @order last
         last: list[RefT] = []
         # Everything else, which is ordered relative to other names
         ordered = refs[:]
@@ -716,7 +716,7 @@ class Parser:
         """
         Returns a list of Reference objects of the requested type in the given collection.
         Used to display a list of functions and fields within the context of a collection,
-        which also respects @within and @reorder tags.
+        which also respects @within and @order tags.
         """
         # @section names aren't necessarily globally unique, so determine which topsyms
         # contain a collection with the same name (which may or may not be the same topsym

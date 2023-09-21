@@ -307,7 +307,8 @@ class FieldRef(Reference):
 
     def _set_name(self) -> None:
         """
-        Derive fully qualified field name (relative to topref).  For class fields (i.e. attributes), these will be qualified based on the class name.
+        Derive fully qualified field name (relative to topref).  For class fields (i.e.
+        attributes), these will be qualified based on the class name.
         """
         # Field types must have a scope
         assert(self.scopes and self.scope)
@@ -383,7 +384,7 @@ class TopRef(CollectionRef):
     """
     Represents a top-level reference such as class or module.
     """
-    # Ordered list of collections within this topref, which respects @within and @reorder
+    # Ordered list of collections within this topref, which respects @within and @order
     collections: List[CollectionRef] = field(default_factory=list)
 
     def _set_topsym(self) -> None:
