@@ -1,0 +1,4 @@
+[tool.pyright]
+exclude = [
+    "**/build",
+]
