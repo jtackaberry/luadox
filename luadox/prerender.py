@@ -51,7 +51,7 @@ class Prerenderer:
         return toprefs
 
 
-    def _do_classmod(self, topref: Union[ClassRef, ModuleRef]):
+    def _do_classmod(self, topref: Union[ClassRef, ModuleRef]) -> None:
         has_content = False
         for colref in self.parser.get_collections(topref):
             self.ctx.update(ref=colref)
@@ -113,7 +113,7 @@ class Prerenderer:
         topref.userdata['empty'] = not has_content
 
 
-    def _do_manual(self, topref: ManualRef):
+    def _do_manual(self, topref: ManualRef) -> None:
         if topref.raw_content:
             self.ctx.update(ref=topref)
             # Include any preamble before the first heading.

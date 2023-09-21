@@ -27,7 +27,7 @@ from ..reference import *
 from ..utils import *
 from .json import JSONRenderer
 
-def str_representer(dumper: Dumper, data: str, **kwargs):
+def str_representer(dumper: Dumper, data: str, **kwargs) -> yaml.ScalarNode:
     """
     Represents strings containing newlins as a YAML block scalar.
     """

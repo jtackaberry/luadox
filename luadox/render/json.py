@@ -186,7 +186,7 @@ class JSONRenderer(Renderer):
             sections.append(section)
         return out
 
-    def _get_outfile(self, dst: str, ext: str = '.json'):
+    def _get_outfile(self, dst: str, ext: str = '.json') -> str:
         if not dst:
             dst = './luadox' + ext
             log.warn('"out" is not defined in config file, assuming %s', dst)
