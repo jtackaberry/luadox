@@ -30,10 +30,10 @@ class JSONRenderer(Renderer):
             'apiVersion': 'v1alpha1',
             'kind': 'luadox',
         }
-        name = self.config.get('project', 'name')
+        name = self.config.get('project', 'name', fallback=None)
         if name:
             project['name'] = name
-        title = self.config.get('project', 'title')
+        title = self.config.get('project', 'title', fallback=None)
         if title:
             project['title'] = title
 
