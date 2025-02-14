@@ -285,6 +285,8 @@ class HTMLRenderer(Renderer):
 
         css = self.config.get('project', 'css', fallback=None)
         if css:
+            # The stylesheet is always copied to doc root, so take only the filename
+            _, css = os.path.split(css)
             head.append('<link href="{}{}?{}" rel="stylesheet" />'.format(root, css, self._assets_version))
 
         favicon = self.config.get('project', 'favicon', fallback=None)
