@@ -95,10 +95,15 @@ class HTMLRenderer(Renderer):
         ref.flags['display'] = 'Search'
         parser.refs['--search'] = ref
 
+        # Load custom templates if provided, otherwise use default assets
+        head_template = self.config.get('project', 'head_template', fallback=None)
+        foot_template = self.config.get('project', 'foot_template', fallback=None)
+        search_template = self.config.get('project', 'search_template', fallback=None)
+
         self._templates = {
-            'head': assets.get('head.tmpl.html').decode('utf8'),
-            'foot': assets.get('foot.tmpl.html').decode('utf8'),
-            'search': assets.get('search.tmpl.html').decode('utf8'),
+            'head': open(head_template, 'r', encoding='utf8').read() if head_template else assets.get('head.tmpl.html').decode('utf8'),
+            'foot': open(foot_template, 'r', encoding='utf8').read() if foot_template else assets.get('foot.tmpl.html').decode('utf8'),
+            'search': open(search_template, 'r', encoding='utf8').read() if search_template else assets.get('search.tmpl.html').decode('utf8'),
         }
         self._assets_version = assets.hash()[:7]
 
