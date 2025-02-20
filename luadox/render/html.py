@@ -288,12 +288,18 @@ class HTMLRenderer(Renderer):
         root = self._get_root_path()
         head: list[str] = []
 
-        css = self.config.get('project', 'css', fallback=None)
-        if css:
+        css_files = self.config.get('project', 'css', fallback='').split()
+        for i, css in enumerate(css_files):
             # The stylesheet is always copied to doc root, so take only the filename
             _, css = os.path.split(css)
             head.append('<link href="{}{}?{}" rel="stylesheet" />'.format(root, css, self._assets_version))
 
+        js_files = self.config.get('project', 'js', fallback='').split()
+        for i, js in enumerate(js_files):
+            # The script files are always copied to doc root, so take only the filename
+            _, js = os.path.split(js)
+            head.append('<script src="{}{}?{}" </script>'.format(root, js, self._assets_version))    
+                           
         favicon = self.config.get('project', 'favicon', fallback=None)
         if favicon:
             mimetype, _ = mimetypes.guess_type(favicon)
@@ -737,6 +743,7 @@ class HTMLRenderer(Renderer):
             outdir = 'out'
         os.makedirs(outdir, exist_ok=True)
         self.copy_file_from_config('project', 'css', outdir)
+        self.copy_file_from_config('project', 'js', outdir)
         self.copy_file_from_config('project', 'favicon', outdir)
 
         for ref in toprefs:

@@ -139,9 +139,13 @@ def get_config(args: argparse.Namespace) -> ConfigParser:
         config.set('project', 'files', '\n'.join(args.files))
     if args.nofollow:
         config.set('project', 'follow', 'false')
-    for prop in ('name', 'out', 'css', 'favicon', 'encoding', 'hometext', 'renderer'):
+    for prop in ('name', 'out', 'favicon', 'encoding', 'hometext', 'renderer'):
         if getattr(args, prop):
             config.set('project', prop, getattr(args, prop))
+    if args.css:
+        config.set('project', 'css', '\n'.join(args.css))
+    if args.js:
+        config.set('project', 'js', '\n'.join(args.js))
     if args.manual:
         for spec in args.manual:
             id, fname = spec.split('=')
@@ -151,7 +155,7 @@ def get_config(args: argparse.Namespace) -> ConfigParser:
     if args.foot_template:
         config.set('project', 'foot_template', args.foot_template)
     if args.search_template:
-        config.set('project', 'search_template', args.search_template)            
+        config.set('project', 'search_template', args.search_template)
     return config
 
 
@@ -188,8 +192,10 @@ def main():
                    'luadox.<someext> for single-file renderers)')
     p.add_argument('-m', '--manual', action='store', type=str, metavar='ID=FILENAME', nargs='*',
                    help='Add manual page in the form id=filename.md')
-    p.add_argument('--css', action='store', type=str, metavar='FILE',
-                   help='Custom CSS file (html renderer)')
+    p.add_argument('--css', action='store', type=str, metavar='FILE', nargs='*', 
+                   help='Custom CSS file(s) (html renderer)')
+    p.add_argument('--js', action='store', type=str, metavar='FILE', nargs='*', 
+                   help='Custom JS file(s) (html renderer)')
     p.add_argument('--favicon', action='store', type=str, metavar='FILE',
                    help='Path to favicon file (html renderer)')
     p.add_argument('--head_template', action='store', type=str, metavar='FILE',

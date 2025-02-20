@@ -32,14 +32,14 @@ class Renderer:
         self.ctx = parser.ctx
 
     def copy_file_from_config(self, section: str, option: str, outdir: str) -> None:
-        fname = self.config.get(section, option, fallback=None)
-        if not fname:
+        fnames = self.config.get(section, option, fallback='').split()
+        if not fnames:
             return
-        if not os.path.exists(fname):
-            log.critical('%s file "%s" does not exist', option, fname)
-        else:
+        for fname in fnames:
+            if not os.path.exists(fname):
+                log.critical('%s file "%s" does not exist, skipping', option, fname)
+                continue
             shutil.copy(fname, outdir)
-
 
     def render(self, toprefs: List[TopRef], outdir: Optional[str]) -> None: # pyright: ignore
         """
