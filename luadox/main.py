@@ -156,6 +156,8 @@ def get_config(args: argparse.Namespace) -> ConfigParser:
         config.set('project', 'foot_template', args.foot_template)
     if args.search_template:
         config.set('project', 'search_template', args.search_template)
+    if args.sidebar_template:
+        config.set('project', 'sidebar_template', args.sidebar_template)
     return config
 
 
@@ -204,6 +206,8 @@ def main():
                    help='Path to custom foot template (html renderer)')
     p.add_argument('--search_template', action='store', type=str, metavar='FILE',
                    help='Path to custom search template (html renderer)')    
+    p.add_argument('--sidebar_template', action='store', type=str, metavar='FILE',
+                   help='Path to custom sidebar template (html renderer)')    
     p.add_argument('--nofollow', action='store_true',
                    help="Disable following of require()'d files (default false)")
     p.add_argument('--encoding', action='store', type=str, metavar='CODEC', default=None,
