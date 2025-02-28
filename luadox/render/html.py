@@ -298,7 +298,7 @@ class HTMLRenderer(Renderer):
         for i, js in enumerate(js_files):
             # The script files are always copied to doc root, so take only the filename
             _, js = os.path.split(js)
-            head.append('<script src="{}{}?{}" </script>'.format(root, js, self._assets_version))    
+            head.append('<script src="{}{}?{}"></script>'.format(root, js, self._assets_version))    
                            
         favicon = self.config.get('project', 'favicon', fallback=None)
         if favicon:
