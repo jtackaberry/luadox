@@ -18,6 +18,7 @@ import sys
 import os
 import re
 import mimetypes
+import locale
 from contextlib import contextmanager
 from typing import Union, Tuple, List, Callable, Generator, Type, Optional
 
@@ -100,10 +101,12 @@ class HTMLRenderer(Renderer):
         foot_template = self.config.get('project', 'foot_template', fallback=None)
         search_template = self.config.get('project', 'search_template', fallback=None)
 
+        encoding = self.config.get('project', 'encoding', fallback=locale.getpreferredencoding())
+
         self._templates = {
-            'head': open(head_template, 'r', encoding='utf8').read() if head_template else assets.get('head.tmpl.html').decode('utf8'),
-            'foot': open(foot_template, 'r', encoding='utf8').read() if foot_template else assets.get('foot.tmpl.html').decode('utf8'),
-            'search': open(search_template, 'r', encoding='utf8').read() if search_template else assets.get('search.tmpl.html').decode('utf8'),
+            'head': open(head_template, 'r', encoding=encoding).read() if head_template else assets.get('head.tmpl.html').decode(encoding),
+            'foot': open(foot_template, 'r', encoding=encoding).read() if foot_template else assets.get('foot.tmpl.html').decode(encoding),
+            'search': open(search_template, 'r', encoding=encoding).read() if search_template else assets.get('search.tmpl.html').decode(encoding),
         }
         self._assets_version = assets.hash()[:7]
 
