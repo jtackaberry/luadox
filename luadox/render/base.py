@@ -31,7 +31,7 @@ class Renderer:
         self.config = parser.config
         self.ctx = parser.ctx
 
-    def copy_file_from_config(self, section: str, option: str, outdir: str) -> None:
+    def copy_files_from_config(self, section: str, option: str, outdir: str) -> None:
         fnames = self.config.get(section, option, fallback='').split()
         if not fnames:
             return

@@ -742,9 +742,9 @@ class HTMLRenderer(Renderer):
             log.warn('"out" is not defined in config file, assuming ./out/')
             outdir = 'out'
         os.makedirs(outdir, exist_ok=True)
-        self.copy_file_from_config('project', 'css', outdir)
-        self.copy_file_from_config('project', 'js', outdir)
-        self.copy_file_from_config('project', 'favicon', outdir)
+        self.copy_files_from_config('project', 'css', outdir)
+        self.copy_files_from_config('project', 'js', outdir)
+        self.copy_files_from_config('project', 'favicon', outdir)
 
         for ref in toprefs:
             if ref.userdata.get('empty') and ref.implicit:
