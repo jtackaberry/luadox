@@ -29,6 +29,7 @@ from ..log import log
 from ..reference import *
 from ..parse import *
 from ..utils import *
+from ..utils import files_str_to_list
 from .base import Renderer
 
 # Files from the assets directory to be copied
@@ -288,14 +289,12 @@ class HTMLRenderer(Renderer):
         root = self._get_root_path()
         head: list[str] = []
 
-        css_files = self.config.get('project', 'css', fallback='').split()
-        for i, css in enumerate(css_files):
+        for css in files_str_to_list(self.config.get('project', 'css', fallback='')):
             # The stylesheet is always copied to doc root, so take only the filename
             _, css = os.path.split(css)
             head.append('<link href="{}{}?{}" rel="stylesheet" />'.format(root, css, self._assets_version))
 
-        js_files = self.config.get('project', 'js', fallback='').split()
-        for i, js in enumerate(js_files):
+        for js in files_str_to_list(self.config.get('project', 'js', fallback='')):
             # The script files are always copied to doc root, so take only the filename
             _, js = os.path.split(js)
             head.append('<script src="{}{}?{}"></script>'.format(root, js, self._assets_version))    
